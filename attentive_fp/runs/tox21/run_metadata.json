@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-04-21T17:11:51",
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.00031622776601683794,
+    "weight_decay": 0.001,
+    "num_epochs": 100,
+    "patience": 15
+  },
+  "device": "mps",
+  "model_notes": "Uses the official PyG AttentiveFP implementation."
+}

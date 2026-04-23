@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-04-23T07:47:57",
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.001,
+    "weight_decay": 0.001,
+    "num_epochs": 100,
+    "patience": 15,
+    "gcn_pretrain_epochs": 100,
+    "transformer_epochs": 100,
+    "pretrain_lr": 0.001,
+    "transformer_lr": 0.001,
+    "ema_decay": 0.99,
+    "distill_weight": 1.0
+  },
+  "device": "mps",
+  "model_notes": "Original experimental dual-branch GCN + EMA KD + transformer model from the notebook."
+}

@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-04-23T16:56:02",
+  "hparams": {
+    "batch_size": 50,
+    "lr": 0.0003,
+    "weight_decay": 0.0,
+    "num_epochs": 100,
+    "patience": 15
+  },
+  "device": "mps",
+  "model_notes": "Lightweight local D-MPNN implementation following Chemprop-style directed bond message passing."
+}
