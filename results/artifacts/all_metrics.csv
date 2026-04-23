@@ -1,0 +1,6 @@
+model_name,model_slug,dataset_name,target_columns,num_targets,best_val_auc,best_epoch,test_roc_auc,num_parameters,uses_dual_features,elapsed_seconds
+AttentiveFP,attentive_fp,tox21,"['NR-AR', 'NR-AR-LBD', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD', 'NR-PPAR-gamma', 'SR-ARE', 'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53']",12,0.7513047753071714,14,0.676835664646405,1197612,False,2847.52
+Double_GCN_Transformer,dual_kd_gnn,tox21,"['NR-AR', 'NR-AR-LBD', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD', 'NR-PPAR-gamma', 'SR-ARE', 'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53']",12,0.6732229423901238,27,0.619703162568637,2881552,True,46798.44
+FP-GNN,fp_gnn,tox21,"['NR-AR', 'NR-AR-LBD', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD', 'NR-PPAR-gamma', 'SR-ARE', 'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53']",12,0.7857074058853623,13,0.8039174783573606,664052,False,2177.76
+MLFGNN,mlfgnn,tox21,"['NR-AR', 'NR-AR-LBD', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD', 'NR-PPAR-gamma', 'SR-ARE', 'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53']",12,0.7947403145848143,21,0.806852105715412,81348425,False,16791.79
+MultiChem,multichem,tox21,"['NR-AR', 'NR-AR-LBD', 'NR-AhR', 'NR-Aromatase', 'NR-ER', 'NR-ER-LBD', 'NR-PPAR-gamma', 'SR-ARE', 'SR-ATAD5', 'SR-HSE', 'SR-MMP', 'SR-p53']",12,0.811075623176591,50,0.7998138730722298,1093650,False,29242.66

@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-04-22T01:43:46",
+  "hparams": {
+    "batch_size": 16,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "num_epochs": 100,
+    "patience": 15
+  },
+  "device": "mps",
+  "model_notes": "Paper-guided multilevel fusion GNN implementation."
+}

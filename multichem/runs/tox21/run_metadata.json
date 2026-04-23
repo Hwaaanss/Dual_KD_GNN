@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-04-22T18:24:23",
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.001,
+    "weight_decay": 0.0,
+    "num_epochs": 100,
+    "patience": 15
+  },
+  "device": "mps",
+  "model_notes": "Local modular MultiChem implementation guided by the official paper and repository layout."
+}

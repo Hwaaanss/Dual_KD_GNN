@@ -1,0 +1,26 @@
+{
+  "model_name": "ML-MPNN",
+  "model_slug": "ml_mpnn",
+  "dataset_name": "tox21_structure_smoke",
+  "target_columns": [
+    "NR-AR",
+    "NR-AR-LBD",
+    "NR-AhR",
+    "NR-Aromatase",
+    "NR-ER",
+    "NR-ER-LBD",
+    "NR-PPAR-gamma",
+    "SR-ARE",
+    "SR-ATAD5",
+    "SR-HSE",
+    "SR-MMP",
+    "SR-p53"
+  ],
+  "num_targets": 12,
+  "best_val_auc": 0.7280577533419139,
+  "best_epoch": 1,
+  "test_roc_auc": 0.6805997022456216,
+  "num_parameters": 1322380,
+  "uses_dual_features": false,
+  "elapsed_seconds": 96.67
+}
