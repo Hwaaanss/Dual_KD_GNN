@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-23T07:47:57",
+  "generated_at": "2026-05-23T02:54:08",
   "hparams": {
     "batch_size": 128,
     "lr": 0.001,
@@ -11,8 +11,9 @@
     "pretrain_lr": 0.001,
     "transformer_lr": 0.001,
     "ema_decay": 0.99,
-    "distill_weight": 1.0
+    "distill_weight": 0.05
   },
-  "device": "mps",
-  "model_notes": "Original experimental dual-branch GCN + EMA KD + transformer model from the notebook."
+  "model_kwargs": {},
+  "device": "cuda",
+  "model_notes": "Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss plus weighted KD during stage 1."
 }

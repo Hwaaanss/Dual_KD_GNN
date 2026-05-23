@@ -64,7 +64,10 @@ def add_shared_training_arguments(parser: argparse.ArgumentParser) -> argparse.A
 
 def build_single_model_parser(spec: ModelSpec) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=f"Train {spec.name}.")
-    return add_shared_training_arguments(parser)
+    add_shared_training_arguments(parser)
+    if spec.add_model_arguments is not None:
+        spec.add_model_arguments(parser)
+    return parser
 
 
 def collect_override_hparams(args: argparse.Namespace) -> dict[str, Any]:
@@ -100,10 +103,12 @@ def run_experiment(
     target_columns: list[str],
     model_dir: Path,
     overrides: dict[str, Any] | None = None,
+    model_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     set_seed(seed)
     device = get_device(device_name)
     hparams = merge_hparams(spec.default_hparams, overrides)
+    model_kwargs = model_kwargs or {}
 
     print(f"Using device: {device}")
     train_dataset, val_dataset, test_dataset = create_datasets(
@@ -113,7 +118,7 @@ def run_experiment(
         dual=spec.uses_dual_features,
     )
 
-    model = spec.builder()
+    model = spec.builder(**model_kwargs)
     train_start = time.time()
     trainer = Trainer(
         model=model,
@@ -149,6 +154,7 @@ def run_experiment(
         metrics=metrics,
         metadata={
             "hparams": hparams,
+            "model_kwargs": model_kwargs,
             "device": str(device),
             "model_notes": spec.notes,
         },
@@ -163,6 +169,15 @@ def run_experiment(
 def run_from_cli(spec: ModelSpec, model_dir: Path) -> dict[str, Any]:
     parser = build_single_model_parser(spec)
     args = parser.parse_args()
+    model_kwargs = spec.collect_model_kwargs(args) if spec.collect_model_kwargs is not None else {}
+    hparam_overrides = spec.collect_hparam_overrides(args) if spec.collect_hparam_overrides is not None else {}
+    hparam_overrides.update(
+        {
+            key: value
+            for key, value in collect_override_hparams(args).items()
+            if value is not None
+        }
+    )
     return run_experiment(
         spec=spec,
         data_path=args.data_path,
@@ -171,5 +186,6 @@ def run_from_cli(spec: ModelSpec, model_dir: Path) -> dict[str, Any]:
         device_name=args.device,
         target_columns=args.target_columns,
         model_dir=model_dir,
-        overrides=collect_override_hparams(args),
+        overrides=hparam_overrides,
+        model_kwargs=model_kwargs,
     )

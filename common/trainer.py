@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import torch
 import torch.nn as nn
@@ -28,14 +29,30 @@ class Trainer:
         transformer_lr: float | None = None,
         ema_decay: float = 0.99,
         distill_weight: float = 0.1,
+        epoch_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         self.model = model.to(device)
         self.device = device
         self.num_classes = num_classes
         self.num_epochs = num_epochs
         self.patience = patience
-        self.train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        self.epoch_callback = epoch_callback
+        self.loader_num_workers = 2
+        self.loader_kwargs = self._build_loader_kwargs()
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=self.loader_num_workers,
+            **self.loader_kwargs,
+        )
+        self.val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=self.loader_num_workers,
+            **self.loader_kwargs,
+        )
         self.criterion = nn.BCEWithLogitsLoss(reduction="none")
 
         self.use_stagewise_teacher = bool(getattr(self.model, "supports_stagewise_teacher", False))
@@ -45,9 +62,7 @@ class Trainer:
         self.transformer_lr = transformer_lr if transformer_lr is not None else lr
         self.weight_decay = weight_decay
         self.ema_decay = ema_decay
-        self.distill_weight = 1.0 if self.use_stagewise_teacher else distill_weight
-        self.distill_warmup_steps = 50
-        self.pretrain_global_step = 0
+        self.distill_weight = distill_weight
         self._pretrain_debug_logged = False
 
         self.optimizer = None
@@ -80,6 +95,15 @@ class Trainer:
                 patience=5,
             )
 
+    def _build_loader_kwargs(self) -> dict[str, object]:
+        loader_kwargs: dict[str, object] = {
+            "pin_memory": self.device.type == "cuda",
+        }
+        if self.loader_num_workers > 0:
+            loader_kwargs["persistent_workers"] = True
+            loader_kwargs["prefetch_factor"] = 2
+        return loader_kwargs
+
     def _forward(self, data):
         outputs = self.model(data)
         return outputs[0] if isinstance(outputs, tuple) else outputs
@@ -96,6 +120,10 @@ class Trainer:
         mask = (targets != -1).float()
         loss = (loss_matrix * mask).sum() / mask.sum().clamp(min=1.0)
         return loss, targets
+
+    def _notify_epoch(self, event: dict[str, object]) -> None:
+        if self.epoch_callback is not None:
+            self.epoch_callback(event)
 
     def _run_epoch(self, loader, train: bool = True):
         self._set_model_mode(train)
@@ -122,17 +150,18 @@ class Trainer:
 
     def _run_pretrain_epoch(self, loader, train: bool = True):
         self._set_model_mode(train)
+        total_cls = 0.0
         total_distill = 0.0
         total_applied = 0.0
+        all_outputs, all_targets = [], []
         context = torch.enable_grad() if train else torch.no_grad()
         with context:
             for data in loader:
                 data = data.to(self.device)
                 stage_out = self.model.forward_gcn_pretrain(data)
+                cls_loss, targets = self._compute_task_loss(stage_out["student_logits"], data.y)
                 distill_loss = self.model.compute_distill_loss(stage_out)
-                current_step = self.pretrain_global_step
-                current_distill_weight = 0.0 if current_step < self.distill_warmup_steps else 1.0
-                loss = current_distill_weight * distill_loss
+                loss = cls_loss + (self.distill_weight * distill_loss)
 
                 if train and not self._pretrain_debug_logged:
                     debug_info = stage_out.get("debug_info", {})
@@ -141,26 +170,31 @@ class Trainer:
                     print(f"      student_edge_dropout: {debug_info.get('student_edge_dropout', 0.1):.1f}")
                     print(f"      teacher_edges: {debug_info.get('teacher_num_edges')}")
                     print(f"      student_edges: {debug_info.get('student_num_edges')}")
-                    print(f"      global_step: {current_step}")
-                    print(f"      current_distill_weight: {current_distill_weight:.1f}")
+                    print(f"      task_loss_type: BCEWithLogitsLoss")
+                    print(f"      distill_weight: {self.distill_weight:.4f}")
+                    print(f"      raw_cls_loss: {cls_loss.item():.6f}")
                     print(f"      raw_distill_loss: {distill_loss.item():.6f}")
+                    print(f"      total_loss: {loss.item():.6f}")
                     self._pretrain_debug_logged = True
 
                 if train:
                     self.pretrain_optimizer.zero_grad()
-                    if current_distill_weight > 0.0:
-                        loss.backward()
-                        nn.utils.clip_grad_norm_(self.model.get_gcn_pretrain_parameters(), 1.0)
-                        self.pretrain_optimizer.step()
-                        self.model.update_teachers(self.ema_decay)
-                    self.pretrain_global_step += 1
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(self.model.get_gcn_pretrain_parameters(), 1.0)
+                    self.pretrain_optimizer.step()
+                    self.model.update_teachers(self.ema_decay)
 
+                total_cls += float(cls_loss.item())
                 total_distill += float(distill_loss.item())
                 total_applied += float(loss.item())
+                all_outputs.append(stage_out["student_logits"].detach())
+                all_targets.append(targets.detach())
 
+        average_cls = total_cls / max(len(loader), 1)
         average_distill = total_distill / max(len(loader), 1)
         average_loss = total_applied / max(len(loader), 1)
-        return average_loss, math.nan, 0.0, average_distill
+        metrics = compute_metrics(torch.cat(all_outputs), torch.cat(all_targets), self.num_classes)
+        return average_loss, float(metrics["roc_auc"]), average_cls, average_distill
 
     def _run_transformer_epoch(self, loader, train: bool = True):
         self._set_model_mode(train)
@@ -200,6 +234,17 @@ class Trainer:
                 f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
                 f"Train AUC: {train_auc:.4f} | Val AUC: {val_auc:.4f}"
             )
+            self._notify_epoch(
+                {
+                    "phase": "train",
+                    "epoch": epoch,
+                    "global_epoch": epoch,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "train_metric": train_auc,
+                    "val_metric": val_auc,
+                }
+            )
 
             if val_auc > self.best_val_auc:
                 self.best_val_auc = val_auc
@@ -217,7 +262,7 @@ class Trainer:
         return self.best_val_auc
 
     def _train_stagewise_teacher(self):
-        print("  [Stage 1/2] Student GCN minimizes online EMA teacher distillation loss only")
+        print("  [Stage 1/2] Student GCN minimizes task BCE + lambda * online EMA teacher KD loss")
         self.model.sync_teachers()
         self.pretrain_optimizer = torch.optim.Adam(
             self.model.get_gcn_pretrain_parameters(),
@@ -242,13 +287,29 @@ class Trainer:
             self.pretrain_distill_losses.append(train_dist)
             self.pretrain_val_cls_losses.append(val_cls)
             self.pretrain_val_distill_losses.append(val_dist)
-            self.pretrain_scheduler.step(val_dist)
+            self.pretrain_scheduler.step(val_loss)
             print(
                 f"    GCN Epoch {epoch}/{self.gcn_pretrain_epochs} | "
-                f"Train Distill: {train_dist:.4f} | Val Distill: {val_dist:.4f}"
+                f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
+                f"Train BCE: {train_cls:.4f} | Val BCE: {val_cls:.4f} | "
+                f"Train KD: {train_dist:.4f} | Val KD: {val_dist:.4f} | "
+                f"Train AUC: {train_auc:.4f} | Val AUC: {val_auc:.4f}"
+            )
+            self._notify_epoch(
+                {
+                    "phase": "stage1_gcn_kd",
+                    "epoch": epoch,
+                    "global_epoch": epoch,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "train_metric": train_auc,
+                    "val_metric": val_auc,
+                    "train_distill_loss": train_dist,
+                    "val_distill_loss": val_dist,
+                }
             )
 
-        print("  [Stage 2/2] Frozen EMA teacher GCN -> transformer encoders")
+        print("  [Stage 2/2] Frozen student GCN -> transformer encoders")
         self.optimizer = torch.optim.Adam(
             self.model.get_transformer_parameters(),
             lr=self.transformer_lr,
@@ -279,6 +340,17 @@ class Trainer:
                 f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
                 f"Train AUC: {train_auc:.4f} | Val AUC: {val_auc:.4f}"
             )
+            self._notify_epoch(
+                {
+                    "phase": "stage2_transformer",
+                    "epoch": epoch,
+                    "global_epoch": self.gcn_pretrain_epochs + epoch,
+                    "train_loss": train_loss,
+                    "val_loss": val_loss,
+                    "train_metric": train_auc,
+                    "val_metric": val_auc,
+                }
+            )
 
             if val_auc > self.best_val_auc:
                 self.best_val_auc = val_auc
@@ -303,7 +375,13 @@ class Trainer:
     def evaluate(self, test_dataset, batch_size: int = 64):
         self.model.load_state_dict(self.best_state)
         self.model.to(self.device)
-        loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=self.loader_num_workers,
+            **self.loader_kwargs,
+        )
         if self.use_stagewise_teacher:
             _, test_auc = self._run_transformer_epoch(loader, train=False)
         else:
@@ -315,10 +393,12 @@ class Trainer:
         global_epoch = 0
 
         if self.use_stagewise_teacher:
-            for epoch, (train_loss, val_loss, train_dist, val_dist) in enumerate(
+            for epoch, (train_loss, val_loss, train_auc, val_auc, train_dist, val_dist) in enumerate(
                 zip(
                     self.pretrain_train_losses,
                     self.pretrain_val_losses,
+                    self.pretrain_train_aucs,
+                    self.pretrain_val_aucs,
                     self.pretrain_distill_losses,
                     self.pretrain_val_distill_losses,
                 ),
@@ -332,8 +412,8 @@ class Trainer:
                         "global_epoch": global_epoch,
                         "train_loss": train_loss,
                         "val_loss": val_loss,
-                        "train_metric": math.nan,
-                        "val_metric": math.nan,
+                        "train_metric": train_auc,
+                        "val_metric": val_auc,
                         "train_distill_loss": train_dist,
                         "val_distill_loss": val_dist,
                     }

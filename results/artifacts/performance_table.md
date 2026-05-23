@@ -1,7 +1,9 @@
 | model_name | tox21 |
 | --- | --- |
-| AttentiveFP | 0.6768 |
-| Double_GCN_Transformer | 0.6197 |
-| FP-GNN | 0.8039 |
+| AttentiveFP | 0.6736 |
+| D-MPNN | 0.7798 |
+| Double_GCN_Transformer | 0.7830 |
+| FP-GNN | 0.7929 |
+| ML-MPNN | 0.4246 |
 | MLFGNN | 0.8069 |
 | MultiChem | 0.7998 |

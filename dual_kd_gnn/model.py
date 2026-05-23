@@ -251,7 +251,14 @@ class DoubleGCNTransformerModel(nn.Module):
         self.set_teacher_eval()
 
     def get_gcn_pretrain_parameters(self):
-        return list(self.gnn_c.parameters()) + list(self.gnn_p.parameters())
+        params = []
+        params += list(self.gnn_c.parameters())
+        params += list(self.gnn_p.parameters())
+        params += list(self.input_norm_c.parameters())
+        params += list(self.input_norm_p.parameters())
+        params += list(self.concat_norm.parameters())
+        params += list(self.classifier.parameters())
+        return params
 
     def get_transformer_parameters(self):
         params = []
@@ -267,6 +274,18 @@ class DoubleGCNTransformerModel(nn.Module):
         chem_nodes = self.gnn_c(data.x_chem, data.edge_index, data.edge_attr, data.batch)
         phys_nodes = self.gnn_p(data.x_phys, data.edge_index, data.edge_attr, data.batch)
         return chem_nodes, phys_nodes
+
+    @torch.no_grad()
+    def _run_frozen_student_gcn(self, data):
+        prev_chem_training = self.gnn_c.training
+        prev_phys_training = self.gnn_p.training
+        self.gnn_c.eval()
+        self.gnn_p.eval()
+        try:
+            return self._run_student_gcn(data)
+        finally:
+            self.gnn_c.train(prev_chem_training)
+            self.gnn_p.train(prev_phys_training)
 
     @torch.no_grad()
     def _run_teacher_gcn(self, data):
@@ -327,9 +346,19 @@ class DoubleGCNTransformerModel(nn.Module):
         teacher_c = teacher_c.masked_fill(pad_mask.unsqueeze(-1), 0.0)
         teacher_p = teacher_p.masked_fill(pad_mask.unsqueeze(-1), 0.0)
 
+        student_c_cls = self.input_drop(self.input_norm_c(student_c))
+        student_p_cls = self.input_drop(self.input_norm_p(student_p))
+        student_fused_seq = torch.cat([student_p_cls, student_c_cls], dim=-1)
+        student_fused_seq = student_fused_seq.masked_fill(pad_mask.unsqueeze(-1), 0.0)
+        student_fused_seq = self.concat_norm(student_fused_seq)
+        student_fused_seq = student_fused_seq.masked_fill(pad_mask.unsqueeze(-1), 0.0)
+        student_graph_repr = masked_mean_pool(student_fused_seq, pad_mask)
+        student_logits = self.classifier(student_graph_repr)
+
         return {
             "student_phys_seq": student_p,
             "student_chem_seq": student_c,
+            "student_logits": student_logits,
             "teacher_phys_seq": teacher_p.detach(),
             "teacher_chem_seq": teacher_c.detach(),
             "pad_mask": pad_mask,
@@ -360,8 +389,8 @@ class DoubleGCNTransformerModel(nn.Module):
         return 0.5 * (loss_phys + loss_chem)
 
     def forward(self, data):
-        teacher_chem, teacher_phys = self._run_teacher_gcn(data)
-        padded_c, padded_p, pad_mask = self._pad_dual_sequences(teacher_chem, teacher_phys, data.batch)
+        student_chem, student_phys = self._run_frozen_student_gcn(data)
+        padded_c, padded_p, pad_mask = self._pad_dual_sequences(student_chem, student_phys, data.batch)
 
         padded_c = self.input_drop(self.input_norm_c(padded_c))
         padded_p = self.input_drop(self.input_norm_p(padded_p))

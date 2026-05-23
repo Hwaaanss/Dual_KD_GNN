@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-04-25T21:16:04",
+  "study_name": "att1",
+  "trial_number": 15,
+  "model_kwargs": {
+    "gnn_hidden": 256,
+    "gnn_layers": 2,
+    "gnn_dropout": 0.3216528021025198,
+    "nhead": 8,
+    "tf_layers": 2,
+    "dim_ff": 1024,
+    "tf_dropout": 0.30600451039919774,
+    "ih_rank": 32,
+    "ih_symmetric": false,
+    "ih_proj_dim": 0
+  },
+  "hparams": {
+    "batch_size": 128,
+    "lr": 3.3732417160615305e-05,
+    "weight_decay": 0.002316321912746117,
+    "num_epochs": 60,
+    "patience": 12,
+    "gcn_pretrain_epochs": 40,
+    "transformer_epochs": 60,
+    "pretrain_lr": 0.00045166786006066976,
+    "transformer_lr": 3.3732417160615305e-05,
+    "ema_decay": 0.9644595084282952,
+    "distill_weight": 0.042051747656905614
+  },
+  "device": "cuda",
+  "status": "pruned"
+}

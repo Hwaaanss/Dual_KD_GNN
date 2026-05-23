@@ -1,0 +1,12 @@
+# Recommended Python version: 3.10-3.12
+# This project uses PyTorch, PyTorch Geometric, and RDKit.
+# If RDKit installation fails with pip in your environment, use conda for that package.
+
+numpy
+pandas
+scikit-learn
+matplotlib
+optuna
+torch
+torch-geometric
+rdkit

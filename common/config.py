@@ -66,6 +66,9 @@ class ModelSpec:
     name: str
     slug: str
     uses_dual_features: bool
-    builder: Callable[[], torch.nn.Module]
+    builder: Callable[..., torch.nn.Module]
     default_hparams: dict[str, Any] = field(default_factory=dict)
+    add_model_arguments: Callable[[Any], None] | None = None
+    collect_model_kwargs: Callable[[Any], dict[str, Any]] | None = None
+    collect_hparam_overrides: Callable[[Any], dict[str, Any]] | None = None
     notes: str = ""

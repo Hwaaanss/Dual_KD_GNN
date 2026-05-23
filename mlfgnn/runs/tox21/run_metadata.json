@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-22T01:43:46",
+  "generated_at": "2026-05-22T20:17:21",
   "hparams": {
     "batch_size": 16,
     "lr": 0.001,
@@ -7,6 +7,7 @@
     "num_epochs": 100,
     "patience": 15
   },
-  "device": "mps",
+  "model_kwargs": {},
+  "device": "cuda",
   "model_notes": "Paper-guided multilevel fusion GNN implementation."
 }
