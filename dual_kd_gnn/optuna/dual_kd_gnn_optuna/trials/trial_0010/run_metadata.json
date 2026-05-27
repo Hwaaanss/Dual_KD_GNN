@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-05-26T01:32:21",
+  "study_name": "dual_kd_gnn_optuna",
+  "trial_number": 10,
+  "model_kwargs": {
+    "gnn_hidden": 192,
+    "gnn_layers": 4,
+    "gnn_dropout": 0.4166970342668263,
+    "nhead": 8,
+    "tf_layers": 3,
+    "dim_ff": 384,
+    "tf_dropout": 0.1567032912492357,
+    "ih_rank": 16,
+    "ih_symmetric": true,
+    "ih_proj_dim": 128,
+    "ih_num_prototypes": 6,
+    "ih_assignment_mode": "hard",
+    "ih_diversity_weight": 0.003513178438426788
+  },
+  "hparams": {
+    "batch_size": 64,
+    "lr": 0.002501693414850614,
+    "weight_decay": 0.0018964884541911925,
+    "num_epochs": 60,
+    "patience": 12,
+    "gcn_pretrain_epochs": 40,
+    "transformer_epochs": 60,
+    "pretrain_lr": 0.001251072681925503,
+    "transformer_lr": 0.002501693414850614,
+    "ema_decay": 0.9856972964850843,
+    "distill_weight": 0.008775562620294932
+  },
+  "device": "cuda",
+  "status": "pruned"
+}

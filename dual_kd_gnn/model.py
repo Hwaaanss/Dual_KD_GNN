@@ -116,6 +116,23 @@ class BranchTransformerEncoder(nn.Module):
 
 
 class InteractionTensorHead(nn.Module):
+    """Interaction tensor head with optional codebook-shared low-rank factors.
+
+    When ``num_prototypes > 0`` (and low-rank is enabled) the per-class factor
+    ``U_k`` is reparameterized as a (possibly sparse) combination of ``M`` shared
+    prototypes ``C_m`` via learned assignment logits ``theta_{k,m}``:
+
+        U_k = sum_m alpha_{k,m} * C_m,    alpha_k = route(theta_k / tau)
+
+    The routing function ``route`` is selected by ``assignment_mode``:
+      - ``"hard"`` -> Gumbel-softmax with Straight-Through estimator
+      - ``"soft"`` -> plain softmax
+      - ``"sparse"`` -> top-k of softmax (renormalized)
+
+    A diversity regularizer ``diversity_loss`` discourages codebook collapse by
+    penalizing pairwise absolute cosine similarity between prototypes.
+    """
+
     def __init__(
         self,
         d_model: int,
@@ -124,32 +141,127 @@ class InteractionTensorHead(nn.Module):
         use_bias: bool = True,
         symmetric: bool = True,
         proj_dim: int = 0,
+        num_prototypes: int = 6,
+        assignment_mode: str = "hard",
+        tau: float = 1.0,
+        diversity_weight: float = 0.01,
+        codebook_init: str = "orthogonal",
+        codebook_init_scale: float = 0.1,
+        topk: int = 2,
     ) -> None:
         super().__init__()
+        if assignment_mode not in {"hard", "soft", "sparse"}:
+            raise ValueError(f"Unknown assignment_mode: {assignment_mode}")
+        if codebook_init not in {"orthogonal", "random"}:
+            raise ValueError(f"Unknown codebook_init: {codebook_init}")
+
         self.symmetric = symmetric
         self.use_low_rank = rank > 0
+        self.num_classes = num_classes
+        self.rank = rank
+        self.num_prototypes = int(num_prototypes)
+        self.assignment_mode = assignment_mode
+        self.diversity_weight = float(diversity_weight)
+        self.topk = int(topk)
+        self.tau = float(tau)
+
         if proj_dim > 0:
             self.proj = nn.Sequential(nn.Linear(d_model, proj_dim), nn.ReLU())
             effective_dim = proj_dim
         else:
             self.proj = None
             effective_dim = d_model
-        if self.use_low_rank:
-            self.U = nn.Parameter(torch.randn(num_classes, effective_dim, rank) * 0.01)
+        self.effective_dim = effective_dim
+
+        self._use_codebook = self.use_low_rank and self.num_prototypes > 0
+
+        if self._use_codebook:
+            self.codebook_u = nn.Parameter(
+                self._init_codebook(self.num_prototypes, effective_dim, rank, codebook_init, codebook_init_scale)
+            )
+            self.assignment_logits_u = nn.Parameter(torch.zeros(num_classes, self.num_prototypes))
+            nn.init.normal_(self.assignment_logits_u, std=1.0)
             if not symmetric:
-                self.V = nn.Parameter(torch.randn(num_classes, effective_dim, rank) * 0.01)
+                self.codebook_v = nn.Parameter(
+                    self._init_codebook(self.num_prototypes, effective_dim, rank, codebook_init, codebook_init_scale)
+                )
+                self.assignment_logits_v = nn.Parameter(torch.zeros(num_classes, self.num_prototypes))
+                nn.init.normal_(self.assignment_logits_v, std=1.0)
         else:
-            self.A = nn.Parameter(torch.randn(num_classes, effective_dim, effective_dim) * 0.01)
+            if self.use_low_rank:
+                self.U = nn.Parameter(torch.randn(num_classes, effective_dim, rank) * 0.01)
+                if not symmetric:
+                    self.V = nn.Parameter(torch.randn(num_classes, effective_dim, rank) * 0.01)
+            else:
+                self.A = nn.Parameter(torch.randn(num_classes, effective_dim, effective_dim) * 0.01)
+
         self.linear_residual = nn.Linear(effective_dim, num_classes, bias=False)
         if use_bias:
             self.bias = nn.Parameter(torch.zeros(num_classes))
         else:
             self.register_parameter("bias", None)
 
+    @staticmethod
+    def _init_codebook(num_prototypes: int, d: int, r: int, init: str, scale: float) -> torch.Tensor:
+        codebook = torch.empty(num_prototypes, d, r)
+        if init == "orthogonal":
+            for m in range(num_prototypes):
+                nn.init.orthogonal_(codebook[m])
+            codebook.mul_(scale)
+        else:
+            codebook.normal_(0.0, 0.01)
+        return codebook
+
+    @property
+    def use_codebook(self) -> bool:
+        return self._use_codebook
+
+    def set_tau(self, tau: float) -> None:
+        self.tau = float(tau)
+
+    def _compute_assignment(self, logits: torch.Tensor) -> torch.Tensor:
+        tau = max(self.tau, 1e-3)
+        if self.training:
+            if self.assignment_mode == "soft":
+                return F.softmax(logits / tau, dim=-1)
+            if self.assignment_mode == "hard":
+                return F.gumbel_softmax(logits, tau=tau, hard=True, dim=-1)
+            soft = F.gumbel_softmax(logits, tau=tau, hard=False, dim=-1)
+            k = min(self.topk, soft.size(-1))
+            topk_vals, topk_idx = soft.topk(k, dim=-1)
+            mask = torch.zeros_like(soft).scatter_(-1, topk_idx, topk_vals)
+            return mask / mask.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+
+        if self.assignment_mode == "soft":
+            return F.softmax(logits / tau, dim=-1)
+        if self.assignment_mode == "sparse":
+            soft = F.softmax(logits / tau, dim=-1)
+            k = min(self.topk, soft.size(-1))
+            topk_vals, topk_idx = soft.topk(k, dim=-1)
+            mask = torch.zeros_like(soft).scatter_(-1, topk_idx, topk_vals)
+            return mask / mask.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+        idx = logits.argmax(dim=-1)
+        return F.one_hot(idx, num_classes=logits.size(-1)).to(logits.dtype)
+
+    @staticmethod
+    def _codebook_project(z: torch.Tensor, codebook: torch.Tensor, alpha: torch.Tensor) -> torch.Tensor:
+        # z: [B, d], codebook: [M, d, r], alpha: [K, M] -> [B, K, r]
+        y = torch.einsum("bd,mdr->bmr", z, codebook)
+        return torch.einsum("km,bmr->bkr", alpha, y)
+
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         if self.proj is not None:
             z = self.proj(z)
-        if self.use_low_rank:
+        if self._use_codebook:
+            alpha_u = self._compute_assignment(self.assignment_logits_u)
+            u_proj = self._codebook_project(z, self.codebook_u, alpha_u)
+            if self.symmetric:
+                logits = (u_proj ** 2).sum(dim=-1)
+            else:
+                alpha_v = self._compute_assignment(self.assignment_logits_v)
+                v_proj = self._codebook_project(z, self.codebook_v, alpha_v)
+                logits = (u_proj * v_proj).sum(dim=-1)
+        elif self.use_low_rank:
             if self.symmetric:
                 z_proj = torch.einsum("bd,kdr->bkr", z, self.U)
                 logits = (z_proj ** 2).sum(dim=-1)
@@ -164,6 +276,34 @@ class InteractionTensorHead(nn.Module):
         if self.bias is not None:
             logits = logits + self.bias
         return logits
+
+    @staticmethod
+    def _pairwise_abs_cos(codebook: torch.Tensor) -> torch.Tensor:
+        m = codebook.size(0)
+        if m <= 1:
+            return codebook.new_zeros(())
+        flat = codebook.reshape(m, -1)
+        normed = F.normalize(flat, dim=-1)
+        sim = normed @ normed.t()
+        off_diag = sim - torch.eye(m, device=sim.device, dtype=sim.dtype)
+        return off_diag.abs().sum() / (m * (m - 1))
+
+    def diversity_loss(self) -> torch.Tensor:
+        zero = self.linear_residual.weight.new_zeros(())
+        if not self._use_codebook:
+            return zero
+        loss = self._pairwise_abs_cos(self.codebook_u)
+        if not self.symmetric:
+            loss = 0.5 * (loss + self._pairwise_abs_cos(self.codebook_v))
+        return loss
+
+    @torch.no_grad()
+    def get_assignment_probabilities(self) -> torch.Tensor:
+        """Return the soft assignment matrix alpha (K x M) for analysis/visualization."""
+        if not self._use_codebook:
+            return self.linear_residual.weight.new_zeros((self.num_classes, 0))
+        tau = max(self.tau, 1e-3)
+        return F.softmax(self.assignment_logits_u / tau, dim=-1)
 
 
 class DoubleGCNTransformerModel(nn.Module):
@@ -186,9 +326,18 @@ class DoubleGCNTransformerModel(nn.Module):
         ih_use_bias: bool = True,
         ih_symmetric: bool = True,
         ih_proj_dim: int = 0,
+        ih_num_prototypes: int = 6,
+        ih_assignment_mode: str = "hard",
+        ih_tau_init: float = 1.0,
+        ih_tau_final: float = 0.1,
+        ih_diversity_weight: float = 0.01,
+        ih_codebook_init: str = "orthogonal",
+        ih_topk: int = 2,
     ) -> None:
         super().__init__()
         self.d_model = gnn_hidden
+        self.ih_tau_init = float(ih_tau_init)
+        self.ih_tau_final = float(ih_tau_final)
 
         self.gnn_c = GNNEncoder(chem_dim, edge_dim, gnn_hidden, gnn_layers, gnn_dropout)
         self.gnn_p = GNNEncoder(phys_dim, edge_dim, gnn_hidden, gnn_layers, gnn_dropout)
@@ -214,6 +363,12 @@ class DoubleGCNTransformerModel(nn.Module):
             use_bias=ih_use_bias,
             symmetric=ih_symmetric,
             proj_dim=ih_proj_dim,
+            num_prototypes=ih_num_prototypes,
+            assignment_mode=ih_assignment_mode,
+            tau=ih_tau_init,
+            diversity_weight=ih_diversity_weight,
+            codebook_init=ih_codebook_init,
+            topk=ih_topk,
         )
         self.sync_teachers()
 
@@ -249,6 +404,23 @@ class DoubleGCNTransformerModel(nn.Module):
         self._ema_update_module(self.teacher_gnn_c, self.gnn_c, ema_decay)
         self._ema_update_module(self.teacher_gnn_p, self.gnn_p, ema_decay)
         self.set_teacher_eval()
+
+    def auxiliary_loss(self) -> torch.Tensor:
+        """Diversity regularization on the classifier codebook (zero when disabled)."""
+        if not self.classifier.use_codebook or self.classifier.diversity_weight <= 0.0:
+            return self.classifier.linear_residual.weight.new_zeros(())
+        return self.classifier.diversity_weight * self.classifier.diversity_loss()
+
+    def step_classifier_schedule(self, stage: str, epoch_idx: int, total_epochs: int) -> None:
+        """Anneal classifier sampling temperature linearly over stage-2 epochs."""
+        if stage != "stage2" or not self.classifier.use_codebook:
+            return
+        if total_epochs <= 1:
+            self.classifier.set_tau(self.ih_tau_final)
+            return
+        progress = max(0.0, min(1.0, float(epoch_idx) / float(total_epochs - 1)))
+        tau = self.ih_tau_init + (self.ih_tau_final - self.ih_tau_init) * progress
+        self.classifier.set_tau(tau)
 
     def get_gcn_pretrain_parameters(self):
         params = []

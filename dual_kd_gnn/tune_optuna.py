@@ -89,6 +89,9 @@ def sample_model_kwargs(trial: optuna.Trial) -> dict[str, Any]:
         "ih_rank": trial.suggest_categorical("ih_rank", [16, 32, 64]),
         "ih_symmetric": trial.suggest_categorical("ih_symmetric", [True, False]),
         "ih_proj_dim": trial.suggest_categorical("ih_proj_dim", [0, 128, 256]),
+        "ih_num_prototypes": trial.suggest_categorical("ih_num_prototypes", [3, 4, 6, 8, 12]),
+        "ih_assignment_mode": trial.suggest_categorical("ih_assignment_mode", ["hard", "soft", "sparse"]),
+        "ih_diversity_weight": trial.suggest_float("ih_diversity_weight", 1e-4, 1e-1, log=True),
     }
 
 

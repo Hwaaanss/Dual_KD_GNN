@@ -26,6 +26,13 @@ MODEL_KWARG_NAMES = [
     "ih_rank",
     "ih_symmetric",
     "ih_proj_dim",
+    "ih_num_prototypes",
+    "ih_assignment_mode",
+    "ih_tau_init",
+    "ih_tau_final",
+    "ih_diversity_weight",
+    "ih_codebook_init",
+    "ih_topk",
 ]
 HPARAM_NAMES = [
     "batch_size",
@@ -69,6 +76,28 @@ def add_dual_model_arguments(parser) -> None:
     ih_symmetric.add_argument("--ih-symmetric", dest="ih_symmetric", action="store_true", default=None)
     ih_symmetric.add_argument("--ih-asymmetric", dest="ih_symmetric", action="store_false")
     parser.add_argument("--ih-proj-dim", type=int, default=None)
+    parser.add_argument(
+        "--ih-num-prototypes",
+        type=int,
+        default=None,
+        help="Number of shared codebook prototypes (M). 0 disables the codebook and uses per-class U_k.",
+    )
+    parser.add_argument(
+        "--ih-assignment-mode",
+        choices=["hard", "soft", "sparse"],
+        default=None,
+        help="Codebook assignment routing: hard (Gumbel-STE), soft (softmax), or sparse (top-k softmax).",
+    )
+    parser.add_argument("--ih-tau-init", type=float, default=None, help="Initial Gumbel/softmax temperature.")
+    parser.add_argument("--ih-tau-final", type=float, default=None, help="Final Gumbel/softmax temperature after annealing.")
+    parser.add_argument("--ih-diversity-weight", type=float, default=None, help="Weight of the codebook diversity regularizer.")
+    parser.add_argument(
+        "--ih-codebook-init",
+        choices=["orthogonal", "random"],
+        default=None,
+        help="Codebook initialization scheme.",
+    )
+    parser.add_argument("--ih-topk", type=int, default=None, help="Top-k for sparse assignment mode.")
 
 
 def collect_dual_model_kwargs(args) -> dict[str, object]:

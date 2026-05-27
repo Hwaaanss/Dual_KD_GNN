@@ -121,6 +121,19 @@ class Trainer:
         loss = (loss_matrix * mask).sum() / mask.sum().clamp(min=1.0)
         return loss, targets
 
+    def _maybe_auxiliary_loss(self) -> torch.Tensor | None:
+        if hasattr(self.model, "auxiliary_loss"):
+            aux = self.model.auxiliary_loss()
+            if isinstance(aux, torch.Tensor) and aux.requires_grad:
+                return aux
+            if isinstance(aux, torch.Tensor) and aux.numel() == 1 and float(aux.item()) != 0.0:
+                return aux
+        return None
+
+    def _maybe_step_schedule(self, stage: str, epoch_idx: int, total_epochs: int) -> None:
+        if hasattr(self.model, "step_classifier_schedule"):
+            self.model.step_classifier_schedule(stage, epoch_idx, total_epochs)
+
     def _notify_epoch(self, event: dict[str, object]) -> None:
         if self.epoch_callback is not None:
             self.epoch_callback(event)
@@ -136,6 +149,9 @@ class Trainer:
                 outputs = self._forward(data)
                 loss, targets = self._compute_task_loss(outputs, data.y)
                 if train:
+                    aux = self._maybe_auxiliary_loss()
+                    if aux is not None:
+                        loss = loss + aux
                     self.optimizer.zero_grad()
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
@@ -162,6 +178,10 @@ class Trainer:
                 cls_loss, targets = self._compute_task_loss(stage_out["student_logits"], data.y)
                 distill_loss = self.model.compute_distill_loss(stage_out)
                 loss = cls_loss + (self.distill_weight * distill_loss)
+                if train:
+                    aux = self._maybe_auxiliary_loss()
+                    if aux is not None:
+                        loss = loss + aux
 
                 if train and not self._pretrain_debug_logged:
                     debug_info = stage_out.get("debug_info", {})
@@ -207,6 +227,9 @@ class Trainer:
                 outputs = self._forward(data)
                 loss, targets = self._compute_task_loss(outputs, data.y)
                 if train:
+                    aux = self._maybe_auxiliary_loss()
+                    if aux is not None:
+                        loss = loss + aux
                     self.optimizer.zero_grad()
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.model.get_transformer_parameters(), 1.0)
@@ -328,6 +351,7 @@ class Trainer:
         self.best_state = {key: value.cpu().clone() for key, value in self.model.state_dict().items()}
 
         for epoch in range(1, self.transformer_epochs + 1):
+            self._maybe_step_schedule("stage2", epoch - 1, self.transformer_epochs)
             train_loss, train_auc = self._run_transformer_epoch(self.train_loader, train=True)
             val_loss, val_auc = self._run_transformer_epoch(self.val_loader, train=False)
             self.train_losses.append(train_loss)
