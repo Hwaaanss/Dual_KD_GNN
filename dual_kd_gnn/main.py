@@ -46,6 +46,7 @@ HPARAM_NAMES = [
     "transformer_lr",
     "ema_decay",
     "distill_weight",
+    "cross_distill_weight",
 ]
 
 
@@ -141,11 +142,12 @@ MODEL_SPEC = ModelSpec(
         "transformer_lr": 1e-3,
         "ema_decay": 0.99,
         "distill_weight": 0.05,
+        "cross_distill_weight": 0.05,
     },
     add_model_arguments=add_dual_model_arguments,
     collect_model_kwargs=collect_dual_model_kwargs,
     collect_hparam_overrides=collect_dual_hparam_overrides,
-    notes="Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss plus weighted KD during stage 1.",
+    notes="Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss, intra-modal MSE KD, and BYOL-style cross-modal cosine KD during stage 1.",
 )
 
 

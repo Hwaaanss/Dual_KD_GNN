@@ -1,33 +1,34 @@
 {
-  "generated_at": "2026-05-27T13:59:03",
+  "generated_at": "2026-06-01T21:22:45",
   "hparams": {
     "batch_size": 64,
-    "lr": 0.0012834198135551096,
-    "weight_decay": 8.631087200656353e-05,
-    "num_epochs": 60,
+    "lr": 0.0002662364233016147,
+    "weight_decay": 0.0003058607641997661,
+    "num_epochs": 40,
     "patience": 12,
     "gcn_pretrain_epochs": 40,
-    "transformer_epochs": 60,
-    "pretrain_lr": 0.0020843415633790456,
-    "transformer_lr": 0.0012834198135551096,
-    "ema_decay": 0.9841054600370737,
-    "distill_weight": 0.02049877231912614
+    "transformer_epochs": 40,
+    "pretrain_lr": 0.0005920452793234432,
+    "transformer_lr": 0.0002662364233016147,
+    "ema_decay": 0.9958949672814823,
+    "distill_weight": 0.027951641155680034,
+    "cross_distill_weight": 0.05
   },
   "model_kwargs": {
-    "gnn_hidden": 192,
-    "gnn_layers": 3,
-    "gnn_dropout": 0.45766508659374183,
+    "gnn_hidden": 384,
+    "gnn_layers": 2,
+    "gnn_dropout": 0.3303237413177932,
     "nhead": 8,
-    "tf_layers": 2,
-    "dim_ff": 384,
-    "tf_dropout": 0.1280971951192178,
-    "ih_rank": 16,
-    "ih_symmetric": true,
+    "tf_layers": 3,
+    "dim_ff": 1152,
+    "tf_dropout": 0.37976745941464213,
+    "ih_rank": 64,
+    "ih_symmetric": false,
     "ih_proj_dim": 128,
-    "ih_num_prototypes": 12,
-    "ih_assignment_mode": "hard",
-    "ih_diversity_weight": 0.001429858909444399
+    "ih_num_prototypes": 4,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.011559388607125421
   },
   "device": "cuda",
-  "model_notes": "Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss plus weighted KD during stage 1."
+  "model_notes": "Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss, intra-modal MSE KD, and BYOL-style cross-modal cosine KD during stage 1."
 }

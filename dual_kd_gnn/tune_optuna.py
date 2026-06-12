@@ -109,6 +109,7 @@ def sample_hparams(trial: optuna.Trial, args: argparse.Namespace) -> dict[str, A
         "transformer_lr": transformer_lr,
         "ema_decay": trial.suggest_float("ema_decay", 0.95, 0.999),
         "distill_weight": trial.suggest_float("distill_weight", 1e-3, 0.2, log=True),
+        "cross_distill_weight": trial.suggest_categorical("cross_distill_weight", [0.02, 0.05, 0.1]),
     }
 
 

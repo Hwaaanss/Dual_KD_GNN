@@ -1,0 +1,33 @@
+{
+  "trial_number": 25,
+  "dataset_name": "tox21_optuna_trial_0025",
+  "model_kwargs": {
+    "gnn_hidden": 128,
+    "gnn_layers": 4,
+    "gnn_dropout": 0.5343769757863156,
+    "nhead": 8,
+    "tf_layers": 2,
+    "dim_ff": 512,
+    "tf_dropout": 0.15618666691821242,
+    "ih_rank": 32,
+    "ih_symmetric": true,
+    "ih_proj_dim": 128,
+    "ih_num_prototypes": 4,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.00016139384562916754
+  },
+  "hparams": {
+    "batch_size": 64,
+    "lr": 0.0012997148169073558,
+    "weight_decay": 0.00021444568367740504,
+    "num_epochs": 60,
+    "patience": 12,
+    "gcn_pretrain_epochs": 40,
+    "transformer_epochs": 60,
+    "pretrain_lr": 0.0012187485287792723,
+    "transformer_lr": 0.0012997148169073558,
+    "ema_decay": 0.983211299360527,
+    "distill_weight": 0.14304279711676354
+  },
+  "seed": 42
+}

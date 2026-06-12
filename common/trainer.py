@@ -29,6 +29,7 @@ class Trainer:
         transformer_lr: float | None = None,
         ema_decay: float = 0.99,
         distill_weight: float = 0.1,
+        cross_distill_weight: float = 0.0,
         epoch_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         self.model = model.to(device)
@@ -63,6 +64,7 @@ class Trainer:
         self.weight_decay = weight_decay
         self.ema_decay = ema_decay
         self.distill_weight = distill_weight
+        self.cross_distill_weight = cross_distill_weight
         self._pretrain_debug_logged = False
 
         self.optimizer = None
@@ -80,8 +82,10 @@ class Trainer:
         self.pretrain_val_aucs: list[float] = []
         self.pretrain_cls_losses: list[float] = []
         self.pretrain_distill_losses: list[float] = []
+        self.pretrain_cross_distill_losses: list[float] = []
         self.pretrain_val_cls_losses: list[float] = []
         self.pretrain_val_distill_losses: list[float] = []
+        self.pretrain_val_cross_distill_losses: list[float] = []
         self.best_val_auc = 0.0
         self.best_epoch = 0
         self.best_state = {key: value.cpu().clone() for key, value in self.model.state_dict().items()}
@@ -168,7 +172,12 @@ class Trainer:
         self._set_model_mode(train)
         total_cls = 0.0
         total_distill = 0.0
+        total_cross = 0.0
         total_applied = 0.0
+        use_cross = (
+            self.cross_distill_weight > 0.0
+            and hasattr(self.model, "compute_cross_distill_loss")
+        )
         all_outputs, all_targets = [], []
         context = torch.enable_grad() if train else torch.no_grad()
         with context:
@@ -177,7 +186,15 @@ class Trainer:
                 stage_out = self.model.forward_gcn_pretrain(data)
                 cls_loss, targets = self._compute_task_loss(stage_out["student_logits"], data.y)
                 distill_loss = self.model.compute_distill_loss(stage_out)
-                loss = cls_loss + (self.distill_weight * distill_loss)
+                if use_cross:
+                    cross_loss = self.model.compute_cross_distill_loss(stage_out)
+                else:
+                    cross_loss = stage_out["student_logits"].new_zeros(())
+                loss = (
+                    cls_loss
+                    + (self.distill_weight * distill_loss)
+                    + (self.cross_distill_weight * cross_loss)
+                )
                 if train:
                     aux = self._maybe_auxiliary_loss()
                     if aux is not None:
@@ -192,8 +209,10 @@ class Trainer:
                     print(f"      student_edges: {debug_info.get('student_num_edges')}")
                     print(f"      task_loss_type: BCEWithLogitsLoss")
                     print(f"      distill_weight: {self.distill_weight:.4f}")
+                    print(f"      cross_distill_weight: {self.cross_distill_weight:.4f}")
                     print(f"      raw_cls_loss: {cls_loss.item():.6f}")
                     print(f"      raw_distill_loss: {distill_loss.item():.6f}")
+                    print(f"      raw_cross_distill_loss: {float(cross_loss.item()):.6f}")
                     print(f"      total_loss: {loss.item():.6f}")
                     self._pretrain_debug_logged = True
 
@@ -206,15 +225,23 @@ class Trainer:
 
                 total_cls += float(cls_loss.item())
                 total_distill += float(distill_loss.item())
+                total_cross += float(cross_loss.item())
                 total_applied += float(loss.item())
                 all_outputs.append(stage_out["student_logits"].detach())
                 all_targets.append(targets.detach())
 
         average_cls = total_cls / max(len(loader), 1)
         average_distill = total_distill / max(len(loader), 1)
+        average_cross = total_cross / max(len(loader), 1)
         average_loss = total_applied / max(len(loader), 1)
         metrics = compute_metrics(torch.cat(all_outputs), torch.cat(all_targets), self.num_classes)
-        return average_loss, float(metrics["roc_auc"]), average_cls, average_distill
+        return (
+            average_loss,
+            float(metrics["roc_auc"]),
+            average_cls,
+            average_distill,
+            average_cross,
+        )
 
     def _run_transformer_epoch(self, loader, train: bool = True):
         self._set_model_mode(train)
@@ -287,11 +314,17 @@ class Trainer:
     def _train_stagewise_teacher(self):
         print("  [Stage 1/2] Student GCN minimizes task BCE + lambda * online EMA teacher KD loss")
         self.model.sync_teachers()
-        self.pretrain_optimizer = torch.optim.Adam(
-            self.model.get_gcn_pretrain_parameters(),
-            lr=self.pretrain_lr,
-            weight_decay=self.weight_decay,
-        )
+        if hasattr(self.model, "get_gcn_pretrain_param_groups"):
+            self.pretrain_optimizer = torch.optim.Adam(
+                self.model.get_gcn_pretrain_param_groups(self.weight_decay),
+                lr=self.pretrain_lr,
+            )
+        else:
+            self.pretrain_optimizer = torch.optim.Adam(
+                self.model.get_gcn_pretrain_parameters(),
+                lr=self.pretrain_lr,
+                weight_decay=self.weight_decay,
+            )
         self.pretrain_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.pretrain_optimizer,
             mode="min",
@@ -300,22 +333,29 @@ class Trainer:
         )
 
         for epoch in range(1, self.gcn_pretrain_epochs + 1):
-            train_loss, train_auc, train_cls, train_dist = self._run_pretrain_epoch(self.train_loader, train=True)
-            val_loss, val_auc, val_cls, val_dist = self._run_pretrain_epoch(self.val_loader, train=False)
+            train_loss, train_auc, train_cls, train_dist, train_cross = self._run_pretrain_epoch(
+                self.train_loader, train=True
+            )
+            val_loss, val_auc, val_cls, val_dist, val_cross = self._run_pretrain_epoch(
+                self.val_loader, train=False
+            )
             self.pretrain_train_losses.append(train_loss)
             self.pretrain_val_losses.append(val_loss)
             self.pretrain_train_aucs.append(train_auc)
             self.pretrain_val_aucs.append(val_auc)
             self.pretrain_cls_losses.append(train_cls)
             self.pretrain_distill_losses.append(train_dist)
+            self.pretrain_cross_distill_losses.append(train_cross)
             self.pretrain_val_cls_losses.append(val_cls)
             self.pretrain_val_distill_losses.append(val_dist)
+            self.pretrain_val_cross_distill_losses.append(val_cross)
             self.pretrain_scheduler.step(val_loss)
             print(
                 f"    GCN Epoch {epoch}/{self.gcn_pretrain_epochs} | "
                 f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
                 f"Train BCE: {train_cls:.4f} | Val BCE: {val_cls:.4f} | "
                 f"Train KD: {train_dist:.4f} | Val KD: {val_dist:.4f} | "
+                f"Train XKD: {train_cross:.4f} | Val XKD: {val_cross:.4f} | "
                 f"Train AUC: {train_auc:.4f} | Val AUC: {val_auc:.4f}"
             )
             self._notify_epoch(
@@ -329,6 +369,8 @@ class Trainer:
                     "val_metric": val_auc,
                     "train_distill_loss": train_dist,
                     "val_distill_loss": val_dist,
+                    "train_cross_distill_loss": train_cross,
+                    "val_cross_distill_loss": val_cross,
                 }
             )
 
@@ -417,7 +459,16 @@ class Trainer:
         global_epoch = 0
 
         if self.use_stagewise_teacher:
-            for epoch, (train_loss, val_loss, train_auc, val_auc, train_dist, val_dist) in enumerate(
+            for epoch, (
+                train_loss,
+                val_loss,
+                train_auc,
+                val_auc,
+                train_dist,
+                val_dist,
+                train_cross,
+                val_cross,
+            ) in enumerate(
                 zip(
                     self.pretrain_train_losses,
                     self.pretrain_val_losses,
@@ -425,6 +476,8 @@ class Trainer:
                     self.pretrain_val_aucs,
                     self.pretrain_distill_losses,
                     self.pretrain_val_distill_losses,
+                    self.pretrain_cross_distill_losses,
+                    self.pretrain_val_cross_distill_losses,
                 ),
                 start=1,
             ):
@@ -440,6 +493,8 @@ class Trainer:
                         "val_metric": val_auc,
                         "train_distill_loss": train_dist,
                         "val_distill_loss": val_dist,
+                        "train_cross_distill_loss": train_cross,
+                        "val_cross_distill_loss": val_cross,
                     }
                 )
 
@@ -459,6 +514,8 @@ class Trainer:
                     "val_metric": val_auc,
                     "train_distill_loss": math.nan,
                     "val_distill_loss": math.nan,
+                    "train_cross_distill_loss": math.nan,
+                    "val_cross_distill_loss": math.nan,
                 }
             )
 

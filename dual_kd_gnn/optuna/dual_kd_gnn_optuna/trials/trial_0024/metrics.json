@@ -1,0 +1,27 @@
+{
+  "model_name": "Double_GCN_Transformer",
+  "model_slug": "dual_kd_gnn",
+  "dataset_name": "tox21_optuna_trial_0024",
+  "target_columns": [
+    "NR-AR",
+    "NR-AR-LBD",
+    "NR-AhR",
+    "NR-Aromatase",
+    "NR-ER",
+    "NR-ER-LBD",
+    "NR-PPAR-gamma",
+    "SR-ARE",
+    "SR-ATAD5",
+    "SR-HSE",
+    "SR-MMP",
+    "SR-p53"
+  ],
+  "num_targets": 12,
+  "best_val_auc": 0.7842678176983435,
+  "best_epoch": 1,
+  "test_roc_auc": NaN,
+  "num_parameters": 1667232,
+  "uses_dual_features": true,
+  "elapsed_seconds": 10490.28,
+  "status": "pruned"
+}
