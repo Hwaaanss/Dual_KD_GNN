@@ -1,7 +1,7 @@
 {
   "model_name": "Double_GCN_Transformer",
   "model_slug": "dual_kd_gnn",
-  "dataset_name": "tox21",
+  "dataset_name": "tox21_optuna_trial_0005",
   "target_columns": [
     "NR-AR",
     "NR-AR-LBD",
@@ -17,10 +17,11 @@
     "SR-p53"
   ],
   "num_targets": 12,
-  "best_val_auc": 0.8086079561725664,
-  "best_epoch": 15,
-  "test_roc_auc": 0.7929618373158952,
-  "num_parameters": 3597088,
+  "best_val_auc": 0.7748938201751114,
+  "best_epoch": 22,
+  "test_roc_auc": NaN,
+  "num_parameters": 1131828,
   "uses_dual_features": true,
-  "elapsed_seconds": 11817.73
+  "elapsed_seconds": 11150.91,
+  "status": "pruned"
 }

@@ -28,6 +28,7 @@ class Trainer:
         pretrain_lr: float | None = None,
         transformer_lr: float | None = None,
         ema_decay: float = 0.99,
+        ema_decay_init: float | None = None,
         distill_weight: float = 0.1,
         cross_distill_weight: float = 0.0,
         epoch_callback: Callable[[dict[str, object]], None] | None = None,
@@ -63,6 +64,8 @@ class Trainer:
         self.transformer_lr = transformer_lr if transformer_lr is not None else lr
         self.weight_decay = weight_decay
         self.ema_decay = ema_decay
+        self.ema_decay_init = ema_decay_init
+        self._current_ema_decay = ema_decay
         self.distill_weight = distill_weight
         self.cross_distill_weight = cross_distill_weight
         self._pretrain_debug_logged = False
@@ -137,6 +140,14 @@ class Trainer:
     def _maybe_step_schedule(self, stage: str, epoch_idx: int, total_epochs: int) -> None:
         if hasattr(self.model, "step_classifier_schedule"):
             self.model.step_classifier_schedule(stage, epoch_idx, total_epochs)
+
+    def _compute_ema_decay(self, epoch_idx: int, total_epochs: int) -> float:
+        final_decay = self.ema_decay
+        init_decay = self.ema_decay_init
+        if init_decay is None or init_decay >= final_decay or total_epochs <= 1:
+            return final_decay
+        progress = max(0.0, min(1.0, float(epoch_idx) / float(total_epochs - 1)))
+        return final_decay - (final_decay - init_decay) * 0.5 * (1.0 + math.cos(math.pi * progress))
 
     def _notify_epoch(self, event: dict[str, object]) -> None:
         if self.epoch_callback is not None:
@@ -221,7 +232,7 @@ class Trainer:
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.model.get_gcn_pretrain_parameters(), 1.0)
                     self.pretrain_optimizer.step()
-                    self.model.update_teachers(self.ema_decay)
+                    self.model.update_teachers(self._current_ema_decay)
 
                 total_cls += float(cls_loss.item())
                 total_distill += float(distill_loss.item())
@@ -333,6 +344,7 @@ class Trainer:
         )
 
         for epoch in range(1, self.gcn_pretrain_epochs + 1):
+            self._current_ema_decay = self._compute_ema_decay(epoch - 1, self.gcn_pretrain_epochs)
             train_loss, train_auc, train_cls, train_dist, train_cross = self._run_pretrain_epoch(
                 self.train_loader, train=True
             )
@@ -356,7 +368,8 @@ class Trainer:
                 f"Train BCE: {train_cls:.4f} | Val BCE: {val_cls:.4f} | "
                 f"Train KD: {train_dist:.4f} | Val KD: {val_dist:.4f} | "
                 f"Train XKD: {train_cross:.4f} | Val XKD: {val_cross:.4f} | "
-                f"Train AUC: {train_auc:.4f} | Val AUC: {val_auc:.4f}"
+                f"Train AUC: {train_auc:.4f} | Val AUC: {val_auc:.4f} | "
+                f"EMA: {self._current_ema_decay:.5f}"
             )
             self._notify_epoch(
                 {

@@ -1,0 +1,37 @@
+{
+  "generated_at": "2026-06-14T05:08:33",
+  "study_name": "xkd_ema_ramp",
+  "trial_number": 5,
+  "model_kwargs": {
+    "gnn_hidden": 128,
+    "gnn_layers": 3,
+    "gnn_dropout": 0.5014209498297011,
+    "nhead": 8,
+    "tf_layers": 2,
+    "dim_ff": 512,
+    "tf_dropout": 0.28076155385054363,
+    "ih_rank": 64,
+    "ih_symmetric": true,
+    "ih_proj_dim": 256,
+    "ih_num_prototypes": 3,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.03622666594728668
+  },
+  "hparams": {
+    "batch_size": 128,
+    "lr": 5.362726012764433e-05,
+    "weight_decay": 1.2646671570022426e-05,
+    "num_epochs": 60,
+    "patience": 12,
+    "gcn_pretrain_epochs": 40,
+    "transformer_epochs": 60,
+    "pretrain_lr": 2.6293844204544067e-05,
+    "transformer_lr": 5.362726012764433e-05,
+    "ema_decay": 0.9772832618604591,
+    "ema_decay_init": 0.9,
+    "distill_weight": 0.026010582378540023,
+    "cross_distill_weight": 0.02
+  },
+  "device": "cuda",
+  "status": "pruned"
+}

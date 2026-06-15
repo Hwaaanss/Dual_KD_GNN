@@ -33,6 +33,7 @@ OVERRIDABLE_HPARAMS = [
     "pretrain_lr",
     "transformer_lr",
     "ema_decay",
+    "ema_decay_init",
     "distill_weight",
     "cross_distill_weight",
 ]
@@ -59,6 +60,7 @@ def add_shared_training_arguments(parser: argparse.ArgumentParser) -> argparse.A
     parser.add_argument("--pretrain-lr", type=float, default=None)
     parser.add_argument("--transformer-lr", type=float, default=None)
     parser.add_argument("--ema-decay", type=float, default=None)
+    parser.add_argument("--ema-decay-init", type=float, default=None)
     parser.add_argument("--distill-weight", type=float, default=None)
     parser.add_argument("--cross-distill-weight", type=float, default=None)
     return parser
@@ -84,6 +86,7 @@ def collect_override_hparams(args: argparse.Namespace) -> dict[str, Any]:
         "pretrain_lr": args.pretrain_lr,
         "transformer_lr": args.transformer_lr,
         "ema_decay": args.ema_decay,
+        "ema_decay_init": args.ema_decay_init,
         "distill_weight": args.distill_weight,
         "cross_distill_weight": args.cross_distill_weight,
     }

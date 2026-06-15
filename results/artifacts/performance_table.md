@@ -2,7 +2,7 @@
 | --- | --- |
 | AttentiveFP | 0.6741 |
 | D-MPNN | 0.7779 |
-| Double_GCN_Transformer | 0.7783 |
+| Double_GCN_Transformer | 0.7930 |
 | FP-GNN | 0.7891 |
 | ML-MPNN | 0.7321 |
 | MLFGNN | 0.8067 |
