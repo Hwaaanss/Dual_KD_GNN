@@ -35,11 +35,13 @@ class Trainer:
     ) -> None:
         self.model = model.to(device)
         self.device = device
+        self.use_amp = device.type == "cuda"
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
         self.num_classes = num_classes
         self.num_epochs = num_epochs
         self.patience = patience
         self.epoch_callback = epoch_callback
-        self.loader_num_workers = 2
+        self.loader_num_workers = 4
         self.loader_kwargs = self._build_loader_kwargs()
         self.train_loader = DataLoader(
             train_dataset,
@@ -155,36 +157,40 @@ class Trainer:
 
     def _run_epoch(self, loader, train: bool = True):
         self._set_model_mode(train)
-        total_loss = 0.0
+        total_loss = torch.zeros((), device=self.device)
         all_outputs, all_targets = [], []
         context = torch.enable_grad() if train else torch.no_grad()
         with context:
             for data in loader:
-                data = data.to(self.device)
-                outputs = self._forward(data)
-                loss, targets = self._compute_task_loss(outputs, data.y)
+                data = data.to(self.device, non_blocking=True)
+                with torch.autocast(device_type=self.device.type, enabled=self.use_amp):
+                    outputs = self._forward(data)
+                    loss, targets = self._compute_task_loss(outputs, data.y)
+                    if train:
+                        aux = self._maybe_auxiliary_loss()
+                        if aux is not None:
+                            loss = loss + aux
                 if train:
-                    aux = self._maybe_auxiliary_loss()
-                    if aux is not None:
-                        loss = loss + aux
                     self.optimizer.zero_grad()
-                    loss.backward()
+                    self.scaler.scale(loss).backward()
+                    self.scaler.unscale_(self.optimizer)
                     nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                    self.optimizer.step()
-                total_loss += float(loss.item())
-                all_outputs.append(outputs.detach())
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                total_loss += loss.detach()
+                all_outputs.append(outputs.detach().float())
                 all_targets.append(targets.detach())
 
-        average_loss = total_loss / max(len(loader), 1)
+        average_loss = float(total_loss.item()) / max(len(loader), 1)
         metrics = compute_metrics(torch.cat(all_outputs), torch.cat(all_targets), self.num_classes)
         return average_loss, float(metrics["roc_auc"])
 
     def _run_pretrain_epoch(self, loader, train: bool = True):
         self._set_model_mode(train)
-        total_cls = 0.0
-        total_distill = 0.0
-        total_cross = 0.0
-        total_applied = 0.0
+        total_cls = torch.zeros((), device=self.device)
+        total_distill = torch.zeros((), device=self.device)
+        total_cross = torch.zeros((), device=self.device)
+        total_applied = torch.zeros((), device=self.device)
         use_cross = (
             self.cross_distill_weight > 0.0
             and hasattr(self.model, "compute_cross_distill_loss")
@@ -193,23 +199,24 @@ class Trainer:
         context = torch.enable_grad() if train else torch.no_grad()
         with context:
             for data in loader:
-                data = data.to(self.device)
-                stage_out = self.model.forward_gcn_pretrain(data)
-                cls_loss, targets = self._compute_task_loss(stage_out["student_logits"], data.y)
-                distill_loss = self.model.compute_distill_loss(stage_out)
-                if use_cross:
-                    cross_loss = self.model.compute_cross_distill_loss(stage_out)
-                else:
-                    cross_loss = stage_out["student_logits"].new_zeros(())
-                loss = (
-                    cls_loss
-                    + (self.distill_weight * distill_loss)
-                    + (self.cross_distill_weight * cross_loss)
-                )
-                if train:
-                    aux = self._maybe_auxiliary_loss()
-                    if aux is not None:
-                        loss = loss + aux
+                data = data.to(self.device, non_blocking=True)
+                with torch.autocast(device_type=self.device.type, enabled=self.use_amp):
+                    stage_out = self.model.forward_gcn_pretrain(data)
+                    cls_loss, targets = self._compute_task_loss(stage_out["student_logits"], data.y)
+                    distill_loss = self.model.compute_distill_loss(stage_out)
+                    if use_cross:
+                        cross_loss = self.model.compute_cross_distill_loss(stage_out)
+                    else:
+                        cross_loss = stage_out["student_logits"].new_zeros(())
+                    loss = (
+                        cls_loss
+                        + (self.distill_weight * distill_loss)
+                        + (self.cross_distill_weight * cross_loss)
+                    )
+                    if train:
+                        aux = self._maybe_auxiliary_loss()
+                        if aux is not None:
+                            loss = loss + aux
 
                 if train and not self._pretrain_debug_logged:
                     debug_info = stage_out.get("debug_info", {})
@@ -229,22 +236,24 @@ class Trainer:
 
                 if train:
                     self.pretrain_optimizer.zero_grad()
-                    loss.backward()
+                    self.scaler.scale(loss).backward()
+                    self.scaler.unscale_(self.pretrain_optimizer)
                     nn.utils.clip_grad_norm_(self.model.get_gcn_pretrain_parameters(), 1.0)
-                    self.pretrain_optimizer.step()
+                    self.scaler.step(self.pretrain_optimizer)
+                    self.scaler.update()
                     self.model.update_teachers(self._current_ema_decay)
 
-                total_cls += float(cls_loss.item())
-                total_distill += float(distill_loss.item())
-                total_cross += float(cross_loss.item())
-                total_applied += float(loss.item())
-                all_outputs.append(stage_out["student_logits"].detach())
+                total_cls += cls_loss.detach()
+                total_distill += distill_loss.detach()
+                total_cross += cross_loss.detach()
+                total_applied += loss.detach()
+                all_outputs.append(stage_out["student_logits"].detach().float())
                 all_targets.append(targets.detach())
 
-        average_cls = total_cls / max(len(loader), 1)
-        average_distill = total_distill / max(len(loader), 1)
-        average_cross = total_cross / max(len(loader), 1)
-        average_loss = total_applied / max(len(loader), 1)
+        average_cls = float(total_cls.item()) / max(len(loader), 1)
+        average_distill = float(total_distill.item()) / max(len(loader), 1)
+        average_cross = float(total_cross.item()) / max(len(loader), 1)
+        average_loss = float(total_applied.item()) / max(len(loader), 1)
         metrics = compute_metrics(torch.cat(all_outputs), torch.cat(all_targets), self.num_classes)
         return (
             average_loss,
@@ -256,27 +265,31 @@ class Trainer:
 
     def _run_transformer_epoch(self, loader, train: bool = True):
         self._set_model_mode(train)
-        total_loss = 0.0
+        total_loss = torch.zeros((), device=self.device)
         all_outputs, all_targets = [], []
         context = torch.enable_grad() if train else torch.no_grad()
         with context:
             for data in loader:
-                data = data.to(self.device)
-                outputs = self._forward(data)
-                loss, targets = self._compute_task_loss(outputs, data.y)
+                data = data.to(self.device, non_blocking=True)
+                with torch.autocast(device_type=self.device.type, enabled=self.use_amp):
+                    outputs = self._forward(data)
+                    loss, targets = self._compute_task_loss(outputs, data.y)
+                    if train:
+                        aux = self._maybe_auxiliary_loss()
+                        if aux is not None:
+                            loss = loss + aux
                 if train:
-                    aux = self._maybe_auxiliary_loss()
-                    if aux is not None:
-                        loss = loss + aux
                     self.optimizer.zero_grad()
-                    loss.backward()
+                    self.scaler.scale(loss).backward()
+                    self.scaler.unscale_(self.optimizer)
                     nn.utils.clip_grad_norm_(self.model.get_transformer_parameters(), 1.0)
-                    self.optimizer.step()
-                total_loss += float(loss.item())
-                all_outputs.append(outputs.detach())
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                total_loss += loss.detach()
+                all_outputs.append(outputs.detach().float())
                 all_targets.append(targets.detach())
 
-        average_loss = total_loss / max(len(loader), 1)
+        average_loss = float(total_loss.item()) / max(len(loader), 1)
         metrics = compute_metrics(torch.cat(all_outputs), torch.cat(all_targets), self.num_classes)
         return average_loss, float(metrics["roc_auc"])
 

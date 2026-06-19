@@ -479,33 +479,75 @@ def generate_scaffold(smiles: str) -> str | None:
         return None
 
 
+def _scaffold_stratum(label_block: np.ndarray) -> int:
+    """Coarse label stratum for a scaffold group (kept intact during splitting).
+
+    Returns +1 for positive-leaning groups, -1 for negative-leaning groups, and
+    0 when no labels are observed. Missing labels (NaN / -1) are ignored.
+    """
+    positives = float(np.sum(label_block == 1.0))
+    negatives = float(np.sum(label_block == 0.0))
+    if positives == 0.0 and negatives == 0.0:
+        return 0
+    return 1 if positives >= negatives else -1
+
+
 def scaffold_split(
     dataframe: pd.DataFrame,
+    target_columns: list[str] | None = None,
     smiles_column: str = "smiles",
     train_size: float = 0.8,
     val_size: float = 0.1,
     seed: int = 42,
 ):
+    """Label-aware scaffold split.
+
+    Molecules sharing a Bemis-Murcko scaffold stay in the same split, but each
+    scaffold group is first assigned to a label stratum and every stratum is
+    distributed across train/val/test in the requested proportions. This keeps
+    the scaffold-generalization property while guaranteeing each split sees both
+    classes, so imbalanced single-task sets (e.g. BBBP) no longer produce a
+    single-class val/test split with an undefined (reported as 0.0) ROC-AUC.
+    """
     np.random.seed(seed)
     scaffolds: dict[str, list[int]] = defaultdict(list)
     for idx, smiles in enumerate(dataframe[smiles_column]):
         scaffold = generate_scaffold(smiles)
         scaffolds[scaffold if scaffold else f"invalid_{idx}"].append(idx)
 
-    scaffold_sets = sorted(scaffolds.values(), key=len, reverse=True)
-    train_indices, val_indices, test_indices = [], [], []
-    train_cutoff = int(train_size * len(dataframe))
-    val_cutoff = int((train_size + val_size) * len(dataframe))
+    if target_columns:
+        labels = dataframe[target_columns].to_numpy(dtype=float)
+    else:
+        labels = None
 
-    for scaffold_set in scaffold_sets:
-        if len(train_indices) + len(scaffold_set) <= train_cutoff:
-            train_indices.extend(scaffold_set)
-        elif len(train_indices) + len(val_indices) + len(scaffold_set) <= val_cutoff:
-            val_indices.extend(scaffold_set)
-        else:
-            test_indices.extend(scaffold_set)
+    strata: dict[int, list[list[int]]] = defaultdict(list)
+    for scaffold_set in scaffolds.values():
+        key = _scaffold_stratum(labels[scaffold_set]) if labels is not None else 0
+        strata[key].append(scaffold_set)
 
-    if not val_indices and len(scaffold_sets) > 1:
+    test_size = max(0.0, 1.0 - train_size - val_size)
+    train_indices: list[int] = []
+    val_indices: list[int] = []
+    test_indices: list[int] = []
+    buckets = {"train": train_indices, "val": val_indices, "test": test_indices}
+
+    # Distribute each stratum independently so the minority class is spread
+    # across all three splits, not absorbed entirely into the largest split.
+    for key in sorted(strata.keys()):
+        group_list = strata[key]
+        stratum_total = sum(len(group) for group in group_list)
+        targets = {
+            "train": train_size * stratum_total,
+            "val": val_size * stratum_total,
+            "test": test_size * stratum_total,
+        }
+        counts = {"train": 0, "val": 0, "test": 0}
+        for group in sorted(group_list, key=len, reverse=True):
+            split = max(("train", "val", "test"), key=lambda s: targets[s] - counts[s])
+            buckets[split].extend(group)
+            counts[split] += len(group)
+
+    if not val_indices and len(test_indices) > 1:
         midpoint = len(test_indices) // 2
         val_indices = test_indices[:midpoint]
         test_indices = test_indices[midpoint:]
@@ -513,7 +555,7 @@ def scaffold_split(
     return train_indices, val_indices, test_indices
 
 
-class Tox21Dataset(Dataset):
+class MoleculeDataset(Dataset):
     def __init__(
         self,
         data_path: str,
@@ -521,22 +563,26 @@ class Tox21Dataset(Dataset):
         indices=None,
         rdkit_desc_mean: np.ndarray | None = None,
         rdkit_desc_scale: np.ndarray | None = None,
+        smiles_column: str = "smiles",
     ):
         super().__init__()
         dataframe = pd.read_csv(data_path)
         if indices is not None:
             dataframe = dataframe.iloc[indices].reset_index(drop=True)
-        self.smiles = dataframe["smiles"].tolist()
+        self.smiles = dataframe[smiles_column].tolist()
         labels = torch.tensor(dataframe[target_columns].values, dtype=torch.float)
         self.labels = torch.where(torch.isnan(labels), torch.tensor(-1.0), labels)
         self.rdkit_desc_mean = rdkit_desc_mean
         self.rdkit_desc_scale = rdkit_desc_scale
+        # Featurize once up front; get() is called every epoch by the DataLoader,
+        # so recomputing graphs/fingerprints/descriptors per access wastes CPU.
+        self._graph_cache = [smiles_to_graph_standard(smiles) for smiles in self.smiles]
 
     def len(self):
         return len(self.smiles)
 
     def get(self, idx: int):
-        graph_data = smiles_to_graph_standard(self.smiles[idx])
+        graph_data = self._graph_cache[idx]
         rdkit_desc = torch.zeros((1, 200), dtype=torch.float)
         if graph_data is None:
             pass
@@ -581,21 +627,30 @@ class Tox21Dataset(Dataset):
         )
 
 
-class Tox21DualDataset(Dataset):
-    def __init__(self, data_path: str, target_columns: list[str], indices=None):
+class MoleculeDualDataset(Dataset):
+    def __init__(
+        self,
+        data_path: str,
+        target_columns: list[str],
+        indices=None,
+        smiles_column: str = "smiles",
+    ):
         super().__init__()
         dataframe = pd.read_csv(data_path)
         if indices is not None:
             dataframe = dataframe.iloc[indices].reset_index(drop=True)
-        self.smiles = dataframe["smiles"].tolist()
+        self.smiles = dataframe[smiles_column].tolist()
         labels = torch.tensor(dataframe[target_columns].values, dtype=torch.float)
         self.labels = torch.where(torch.isnan(labels), torch.tensor(-1.0), labels)
+        # Featurize once up front; the 3D conformer embedding + MMFF optimization
+        # in smiles_to_graph_dual is expensive and must not run every epoch.
+        self._graph_cache = [smiles_to_graph_dual(smiles) for smiles in self.smiles]
 
     def len(self):
         return len(self.smiles)
 
     def get(self, idx: int):
-        graph_data = smiles_to_graph_dual(self.smiles[idx])
+        graph_data = self._graph_cache[idx]
         if graph_data is None:
             x_chem = torch.zeros((1, 19), dtype=torch.float)
             x_phys = torch.zeros((1, 5), dtype=torch.float)
@@ -623,14 +678,16 @@ def create_datasets(
     target_columns: list[str],
     seed: int = 42,
     dual: bool = False,
+    smiles_column: str = "smiles",
 ):
     dataframe = pd.read_csv(data_path)
-    train_indices, val_indices, test_indices = scaffold_split(dataframe, seed=seed)
-    dataset_cls = Tox21DualDataset if dual else Tox21Dataset
+    train_indices, val_indices, test_indices = scaffold_split(
+        dataframe, target_columns=target_columns, smiles_column=smiles_column, seed=seed
+    )
     rdkit_desc_mean = None
     rdkit_desc_scale = None
     if not dual:
-        train_smiles = dataframe.iloc[train_indices]["smiles"].tolist()
+        train_smiles = dataframe.iloc[train_indices][smiles_column].tolist()
         rdkit_desc_mean, rdkit_desc_scale = fit_rdkit_descriptor_scaler(train_smiles)
     print(
         f"Split for {'dual' if dual else 'standard'} features: "
@@ -638,12 +695,12 @@ def create_datasets(
     )
     if dual:
         return (
-            dataset_cls(data_path, target_columns, train_indices),
-            dataset_cls(data_path, target_columns, val_indices),
-            dataset_cls(data_path, target_columns, test_indices),
+            MoleculeDualDataset(data_path, target_columns, train_indices, smiles_column=smiles_column),
+            MoleculeDualDataset(data_path, target_columns, val_indices, smiles_column=smiles_column),
+            MoleculeDualDataset(data_path, target_columns, test_indices, smiles_column=smiles_column),
         )
     return (
-        dataset_cls(data_path, target_columns, train_indices, rdkit_desc_mean, rdkit_desc_scale),
-        dataset_cls(data_path, target_columns, val_indices, rdkit_desc_mean, rdkit_desc_scale),
-        dataset_cls(data_path, target_columns, test_indices, rdkit_desc_mean, rdkit_desc_scale),
+        MoleculeDataset(data_path, target_columns, train_indices, rdkit_desc_mean, rdkit_desc_scale, smiles_column),
+        MoleculeDataset(data_path, target_columns, val_indices, rdkit_desc_mean, rdkit_desc_scale, smiles_column),
+        MoleculeDataset(data_path, target_columns, test_indices, rdkit_desc_mean, rdkit_desc_scale, smiles_column),
     )

@@ -1,0 +1,15 @@
+{
+  "model_name": "Double_GCN_Transformer",
+  "model_slug": "dual_kd_gnn",
+  "dataset_name": "bace",
+  "target_columns": [
+    "Class"
+  ],
+  "num_targets": 1,
+  "best_val_auc": 0.8618813618813619,
+  "best_epoch": 38,
+  "test_roc_auc": 0.8537271448663853,
+  "num_parameters": 3041803,
+  "uses_dual_features": true,
+  "elapsed_seconds": 192.19
+}

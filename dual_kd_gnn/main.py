@@ -33,6 +33,7 @@ MODEL_KWARG_NAMES = [
     "ih_diversity_weight",
     "ih_codebook_init",
     "ih_topk",
+    "info_nce_temperature",
 ]
 HPARAM_NAMES = [
     "batch_size",
@@ -100,6 +101,12 @@ def add_dual_model_arguments(parser) -> None:
         help="Codebook initialization scheme.",
     )
     parser.add_argument("--ih-topk", type=int, default=None, help="Top-k for sparse assignment mode.")
+    parser.add_argument(
+        "--info-nce-temperature",
+        type=float,
+        default=None,
+        help="Temperature for cross-modal InfoNCE distillation (graph-level CLIP-style).",
+    )
 
 
 def collect_dual_model_kwargs(args) -> dict[str, object]:
@@ -130,7 +137,9 @@ MODEL_SPEC = ModelSpec(
     name="Double_GCN_Transformer",
     slug="dual_kd_gnn",
     uses_dual_features=True,
-    builder=lambda **model_kwargs: DoubleGCNTransformerModel(**model_kwargs),
+    builder=lambda num_classes, **model_kwargs: DoubleGCNTransformerModel(
+        num_classes=num_classes, **model_kwargs
+    ),
     default_hparams={
         "batch_size": 128,
         "lr": 1e-3,
@@ -149,7 +158,7 @@ MODEL_SPEC = ModelSpec(
     add_model_arguments=add_dual_model_arguments,
     collect_model_kwargs=collect_dual_model_kwargs,
     collect_hparam_overrides=collect_dual_hparam_overrides,
-    notes="Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss, intra-modal MSE KD, and BYOL-style cross-modal cosine KD during stage 1. Optional cosine ramp on EMA momentum (ema_decay_init -> ema_decay) over stage 1 epochs.",
+    notes="Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss, intra-modal MSE KD, and graph-level cross-modal InfoNCE KD (CLIP-style, asymmetric predictor against opposite-branch EMA teacher pool) during stage 1. Optional cosine ramp on EMA momentum (ema_decay_init -> ema_decay) over stage 1 epochs.",
 )
 
 

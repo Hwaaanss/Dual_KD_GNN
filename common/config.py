@@ -38,9 +38,16 @@ def is_mps_available() -> bool:
 def get_device(requested_device: str | None = None) -> torch.device:
     if requested_device:
         if requested_device.startswith("cuda") and not torch.cuda.is_available():
-            return torch.device("cpu")
+            raise RuntimeError(
+                f"Requested device '{requested_device}' but CUDA is not available. "
+                "Refusing to silently fall back to CPU. "
+                "Pass --device cpu explicitly to run on CPU."
+            )
         if requested_device == "mps" and not is_mps_available():
-            return torch.device("cpu")
+            raise RuntimeError(
+                "Requested device 'mps' but MPS is not available. "
+                "Pass --device cpu explicitly to run on CPU."
+            )
         return torch.device(requested_device)
     if torch.cuda.is_available():
         return torch.device("cuda")

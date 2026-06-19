@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import math
 import time
 from pathlib import Path
 from typing import Any
@@ -9,16 +8,20 @@ from typing import Any
 import torch
 
 from common.config import (
-    DEFAULT_DATASET_NAME,
     DEFAULT_SEED,
-    DEFAULT_TARGET_COLUMNS,
-    NUM_CLASSES,
     ModelSpec,
     get_device,
     set_seed,
 )
 from common.data import create_datasets
+from common.datasets import (
+    DEFAULT_DATASET,
+    available_datasets,
+    get_dataset_spec,
+    resolve_target_columns,
+)
 from common.io_utils import save_run_artifacts
+from common.plotting import plot_training_curves
 from common.trainer import Trainer
 
 
@@ -39,17 +42,40 @@ OVERRIDABLE_HPARAMS = [
 ]
 
 
-def add_shared_training_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument("--data-path", required=True, help="Path to the CSV dataset.")
-    parser.add_argument("--dataset-name", default=DEFAULT_DATASET_NAME, help="Label used for saved run directories.")
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Random seed.")
-    parser.add_argument("--device", default=None, help="Explicit device, e.g. cpu, mps, or cuda:0.")
+def add_dataset_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument(
+        "--dataset",
+        default=DEFAULT_DATASET,
+        choices=available_datasets(),
+        help="Registered dataset to train on. Resolves data path, SMILES column, and target tasks.",
+    )
+    parser.add_argument(
+        "--data-path",
+        default=None,
+        help="Override the CSV path inferred from --dataset.",
+    )
+    parser.add_argument(
+        "--dataset-name",
+        default=None,
+        help="Label used for saved run directories. Defaults to --dataset.",
+    )
+    parser.add_argument(
+        "--smiles-column",
+        default=None,
+        help="Override the SMILES column inferred from --dataset.",
+    )
     parser.add_argument(
         "--target-columns",
         nargs="+",
-        default=DEFAULT_TARGET_COLUMNS,
-        help="Target columns to train on.",
+        default=None,
+        help="Override the target columns inferred from --dataset.",
     )
+    return parser
+
+
+def add_general_training_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Random seed.")
+    parser.add_argument("--device", default="cuda", help="Compute device. Defaults to cuda; pass cpu/mps/cuda:N to override.")
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight-decay", type=float, default=None)
@@ -63,6 +89,12 @@ def add_shared_training_arguments(parser: argparse.ArgumentParser) -> argparse.A
     parser.add_argument("--ema-decay-init", type=float, default=None)
     parser.add_argument("--distill-weight", type=float, default=None)
     parser.add_argument("--cross-distill-weight", type=float, default=None)
+    return parser
+
+
+def add_shared_training_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    add_dataset_arguments(parser)
+    add_general_training_arguments(parser)
     return parser
 
 
@@ -110,21 +142,25 @@ def run_experiment(
     model_dir: Path,
     overrides: dict[str, Any] | None = None,
     model_kwargs: dict[str, Any] | None = None,
+    smiles_column: str = "smiles",
 ) -> dict[str, Any]:
     set_seed(seed)
     device = get_device(device_name)
     hparams = merge_hparams(spec.default_hparams, overrides)
     model_kwargs = model_kwargs or {}
+    num_classes = len(target_columns)
 
     print(f"Using device: {device}")
+    print(f"Dataset: {dataset_name} | targets ({num_classes}): {', '.join(target_columns)}")
     train_dataset, val_dataset, test_dataset = create_datasets(
         data_path=data_path,
         target_columns=target_columns,
         seed=seed,
         dual=spec.uses_dual_features,
+        smiles_column=smiles_column,
     )
 
-    model = spec.builder(**model_kwargs)
+    model = spec.builder(num_classes=num_classes, **model_kwargs)
     train_start = time.time()
     trainer = Trainer(
         model=model,
@@ -159,12 +195,16 @@ def run_experiment(
         history_rows=history_rows,
         metrics=metrics,
         metadata={
+            "data_path": str(Path(data_path).resolve()),
+            "smiles_column": smiles_column,
             "hparams": hparams,
             "model_kwargs": model_kwargs,
             "device": str(device),
             "model_notes": spec.notes,
         },
     )
+    torch.save(trainer.best_state, run_dir / "model_weights.pt")
+    plot_training_curves(history_rows, run_dir / "training_curves.png", title=f"{spec.slug} | {dataset_name}")
 
     print(f"Saved run artifacts to: {run_dir}")
     print(f"  Best Val AUC: {trainer.best_val_auc:.4f}")
@@ -172,9 +212,34 @@ def run_experiment(
     return metrics
 
 
+def resolve_dataset_inputs(args: argparse.Namespace) -> tuple[str, str, list[str], str]:
+    """Resolve (data_path, dataset_name, target_columns, smiles_column).
+
+    Registered ``--dataset`` metadata provides defaults; explicit CLI flags
+    (``--data-path``, ``--target-columns``, ``--smiles-column``,
+    ``--dataset-name``) override them.
+    """
+    spec = get_dataset_spec(args.dataset)
+    data_path = args.data_path or str(spec.data_path())
+    if not Path(data_path).exists():
+        raise SystemExit(
+            f"Dataset file not found: {data_path}\n"
+            f"Download it first, e.g.: python scripts/download_data.py {spec.name}"
+        )
+    smiles_column = args.smiles_column or spec.smiles_column
+    target_columns = (
+        list(args.target_columns)
+        if args.target_columns is not None
+        else resolve_target_columns(spec, data_path)
+    )
+    dataset_name = args.dataset_name or spec.name
+    return data_path, dataset_name, target_columns, smiles_column
+
+
 def run_from_cli(spec: ModelSpec, model_dir: Path) -> dict[str, Any]:
     parser = build_single_model_parser(spec)
     args = parser.parse_args()
+    data_path, dataset_name, target_columns, smiles_column = resolve_dataset_inputs(args)
     model_kwargs = spec.collect_model_kwargs(args) if spec.collect_model_kwargs is not None else {}
     hparam_overrides = spec.collect_hparam_overrides(args) if spec.collect_hparam_overrides is not None else {}
     hparam_overrides.update(
@@ -186,12 +251,13 @@ def run_from_cli(spec: ModelSpec, model_dir: Path) -> dict[str, Any]:
     )
     return run_experiment(
         spec=spec,
-        data_path=args.data_path,
-        dataset_name=args.dataset_name,
+        data_path=data_path,
+        dataset_name=dataset_name,
         seed=args.seed,
         device_name=args.device,
-        target_columns=args.target_columns,
+        target_columns=target_columns,
         model_dir=model_dir,
         overrides=hparam_overrides,
         model_kwargs=model_kwargs,
+        smiles_column=smiles_column,
     )

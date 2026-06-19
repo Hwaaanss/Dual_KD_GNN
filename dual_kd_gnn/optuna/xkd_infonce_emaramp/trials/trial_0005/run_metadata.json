@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-16T02:37:44",
+  "study_name": "xkd_infonce_emaramp",
+  "trial_number": 5,
+  "model_kwargs": {
+    "gnn_hidden": 128,
+    "gnn_layers": 4,
+    "gnn_dropout": 0.26657141511494997,
+    "nhead": 8,
+    "tf_layers": 2,
+    "dim_ff": 512,
+    "tf_dropout": 0.43666192761746786,
+    "ih_rank": 16,
+    "ih_symmetric": false,
+    "ih_proj_dim": 256,
+    "ih_num_prototypes": 3,
+    "ih_assignment_mode": "hard",
+    "ih_diversity_weight": 0.04286661750367163,
+    "info_nce_temperature": 0.1
+  },
+  "hparams": {
+    "batch_size": 128,
+    "lr": 7.771469941298163e-05,
+    "weight_decay": 0.0006559375651106448,
+    "num_epochs": 60,
+    "patience": 12,
+    "gcn_pretrain_epochs": 40,
+    "transformer_epochs": 60,
+    "pretrain_lr": 0.0014055401945355056,
+    "transformer_lr": 7.771469941298163e-05,
+    "ema_decay": 0.994748787075267,
+    "ema_decay_init": 0.98,
+    "distill_weight": 0.04123318100884304,
+    "cross_distill_weight": 0.05
+  },
+  "device": "cuda",
+  "status": "pruned"
+}

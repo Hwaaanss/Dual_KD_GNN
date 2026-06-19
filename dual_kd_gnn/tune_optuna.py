@@ -20,9 +20,16 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised only when dependency is absent.
     raise SystemExit("Optuna is required for this script. Install it with: pip install optuna") from exc
 
-from common.config import DEFAULT_DATASET_NAME, DEFAULT_SEED, DEFAULT_TARGET_COLUMNS, get_device, set_seed
+from common.config import DEFAULT_SEED, get_device, set_seed
 from common.data import create_datasets
+from common.datasets import (
+    DEFAULT_DATASET,
+    available_datasets,
+    get_dataset_spec,
+    resolve_target_columns,
+)
 from common.io_utils import ensure_dir, save_json, save_run_artifacts
+from common.plotting import plot_training_curves
 from common.trainer import Trainer
 from dual_kd_gnn.model import DoubleGCNTransformerModel
 
@@ -33,11 +40,18 @@ MODEL_SLUG = "dual_kd_gnn"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Tune dual_kd_gnn with Optuna and save reproducible results.")
-    parser.add_argument("--data-path", help="Path to the CSV dataset. Required unless --replay-best is used.")
-    parser.add_argument("--dataset-name", default=None)
-    parser.add_argument("--target-columns", nargs="+", default=DEFAULT_TARGET_COLUMNS)
+    parser.add_argument(
+        "--dataset",
+        default=DEFAULT_DATASET,
+        choices=available_datasets(),
+        help="Registered dataset to tune on. Resolves data path, SMILES column, and target tasks.",
+    )
+    parser.add_argument("--data-path", default=None, help="Override the CSV path inferred from --dataset.")
+    parser.add_argument("--dataset-name", default=None, help="Label used for saved run directories. Defaults to --dataset.")
+    parser.add_argument("--smiles-column", default=None, help="Override the SMILES column inferred from --dataset.")
+    parser.add_argument("--target-columns", nargs="+", default=None, help="Override the target columns inferred from --dataset.")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--device", default=None)
+    parser.add_argument("--device", default="cuda", help="Compute device. Defaults to cuda; pass cpu/mps/cuda:N to override.")
     parser.add_argument("--study-name", default="dual_kd_gnn_optuna")
     parser.add_argument("--storage", default=None, help="Optuna storage URL. Defaults to a local SQLite DB.")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / MODEL_SLUG / "optuna")
@@ -92,6 +106,7 @@ def sample_model_kwargs(trial: optuna.Trial) -> dict[str, Any]:
         "ih_num_prototypes": trial.suggest_categorical("ih_num_prototypes", [3, 4, 6, 8, 12]),
         "ih_assignment_mode": trial.suggest_categorical("ih_assignment_mode", ["hard", "soft", "sparse"]),
         "ih_diversity_weight": trial.suggest_float("ih_diversity_weight", 1e-4, 1e-1, log=True),
+        "info_nce_temperature": trial.suggest_categorical("info_nce_temperature", [0.1, 0.2, 0.5]),
     }
 
 
@@ -178,6 +193,7 @@ def train_once(
     metadata: dict[str, object],
     epoch_callback=None,
     evaluate_test: bool = False,
+    save_weights: bool = False,
 ) -> dict[str, object]:
     set_seed(seed)
     device = get_device(device_name)
@@ -227,7 +243,13 @@ def train_once(
         status=status,
         test_roc_auc=test_auc,
     )
-    save_run_artifacts(run_dir, trainer.build_history_rows(), metrics, metadata={**metadata, "status": status})
+    history_rows = trainer.build_history_rows()
+    save_run_artifacts(run_dir, history_rows, metrics, metadata={**metadata, "status": status})
+    if save_weights:
+        import torch
+
+        torch.save(trainer.best_state, run_dir / "model_weights.pt")
+        plot_training_curves(history_rows, run_dir / "training_curves.png", title=f"{MODEL_SLUG} | {dataset_name}")
     return metrics
 
 
@@ -289,17 +311,29 @@ def save_best_config(study: optuna.Study, study_dir: Path, base_config: dict[str
 
 
 def run_tuning(args: argparse.Namespace) -> None:
-    if not args.data_path:
-        raise SystemExit("--data-path is required when running Optuna tuning.")
+    spec = get_dataset_spec(args.dataset)
+    data_path = args.data_path or str(spec.data_path())
+    if not Path(data_path).exists():
+        raise SystemExit(
+            f"Dataset file not found: {data_path}\n"
+            f"Download it first, e.g.: python scripts/download_data.py {spec.name}"
+        )
+    smiles_column = args.smiles_column or spec.smiles_column
+    target_columns = (
+        list(args.target_columns)
+        if args.target_columns is not None
+        else resolve_target_columns(spec, data_path)
+    )
+    dataset_name = args.dataset_name or spec.name
 
-    dataset_name = args.dataset_name or DEFAULT_DATASET_NAME
     study_dir = ensure_dir(args.output_dir / args.study_name)
     storage_url = storage_url_for(args, study_dir)
     train_dataset, val_dataset, test_dataset = create_datasets(
-        data_path=args.data_path,
-        target_columns=args.target_columns,
+        data_path=data_path,
+        target_columns=target_columns,
         seed=args.seed,
         dual=True,
+        smiles_column=smiles_column,
     )
 
     sampler = build_sampler(args)
@@ -316,9 +350,11 @@ def run_tuning(args: argparse.Namespace) -> None:
     base_config: dict[str, object] = {
         "study_name": args.study_name,
         "storage": storage_url,
-        "data_path": str(Path(args.data_path).resolve()),
+        "dataset": spec.name,
+        "data_path": str(Path(data_path).resolve()),
         "dataset_name": dataset_name,
-        "target_columns": args.target_columns,
+        "smiles_column": smiles_column,
+        "target_columns": target_columns,
         "seed": args.seed,
         "device": args.device,
     }
@@ -355,7 +391,7 @@ def run_tuning(args: argparse.Namespace) -> None:
             train_dataset=train_dataset,
             val_dataset=val_dataset,
             test_dataset=test_dataset,
-            target_columns=args.target_columns,
+            target_columns=target_columns,
             dataset_name=trial_dataset_name,
             seed=args.seed,
             device_name=args.device,
@@ -382,6 +418,7 @@ def run_replay(args: argparse.Namespace) -> None:
     data_path = args.data_path or config["data_path"]
     dataset_name = args.dataset_name or config["dataset_name"]
     target_columns = list(config["target_columns"])
+    smiles_column = args.smiles_column or config.get("smiles_column", "smiles")
     seed = int(config["seed"])
     device_name = args.device if args.device is not None else config.get("device")
     model_kwargs = dict(config["model_kwargs"])
@@ -392,12 +429,15 @@ def run_replay(args: argparse.Namespace) -> None:
         target_columns=target_columns,
         seed=seed,
         dual=True,
+        smiles_column=smiles_column,
     )
     run_name = args.replay_run_name or f"{dataset_name}_optuna_best"
     run_dir = PROJECT_ROOT / MODEL_SLUG / "runs" / run_name
     metadata = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "replay_best_config": str(args.replay_best.resolve()),
+        "data_path": str(Path(data_path).resolve()),
+        "smiles_column": smiles_column,
         "model_kwargs": model_kwargs,
         "hparams": hparams,
         "device": str(get_device(device_name)),
@@ -415,6 +455,7 @@ def run_replay(args: argparse.Namespace) -> None:
         run_dir=run_dir,
         metadata=metadata,
         evaluate_test=True,
+        save_weights=True,
     )
     print(f"Saved replay run artifacts to: {run_dir}")
     print(f"  Best Val AUC: {float(metrics['best_val_auc']):.4f}")

@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-06-18T23:45:03",
+  "data_path": "/home/dioxide421/Dual_Branch_DR/data/sider.csv",
+  "smiles_column": "smiles",
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.001,
+    "weight_decay": 0.001,
+    "num_epochs": 100,
+    "patience": 15,
+    "gcn_pretrain_epochs": 100,
+    "transformer_epochs": 100,
+    "pretrain_lr": 0.001,
+    "transformer_lr": 0.001,
+    "ema_decay": 0.99,
+    "ema_decay_init": null,
+    "distill_weight": 0.05,
+    "cross_distill_weight": 0.05
+  },
+  "model_kwargs": {},
+  "device": "cuda",
+  "model_notes": "Dual-branch GCN + EMA teacher KD + transformer model with BCE task loss, intra-modal MSE KD, and graph-level cross-modal InfoNCE KD (CLIP-style, asymmetric predictor against opposite-branch EMA teacher pool) during stage 1. Optional cosine ramp on EMA momentum (ema_decay_init -> ema_decay) over stage 1 epochs."
+}

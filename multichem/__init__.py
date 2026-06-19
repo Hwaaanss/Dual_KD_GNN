@@ -1,1 +1,0 @@
-"""MultiChem model package."""

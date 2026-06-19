@@ -25,22 +25,6 @@ def masked_mse(student: torch.Tensor, teacher: torch.Tensor, pad_mask: torch.Ten
     return (diff * valid).sum() / denom
 
 
-def masked_cosine_distance(
-    student: torch.Tensor,
-    teacher: torch.Tensor,
-    pad_mask: torch.Tensor | None = None,
-) -> torch.Tensor:
-    student_n = F.normalize(student, dim=-1, eps=1e-8)
-    teacher_n = F.normalize(teacher, dim=-1, eps=1e-8)
-    cos = (student_n * teacher_n).sum(dim=-1)
-    dist = 1.0 - cos
-    if pad_mask is None:
-        return dist.mean()
-    valid = (~pad_mask).type_as(dist)
-    denom = valid.sum().clamp_min(1.0)
-    return (dist * valid).sum() / denom
-
-
 class GNNEncoder(nn.Module):
     def __init__(
         self,
@@ -349,11 +333,13 @@ class DoubleGCNTransformerModel(nn.Module):
         ih_diversity_weight: float = 0.01,
         ih_codebook_init: str = "orthogonal",
         ih_topk: int = 2,
+        info_nce_temperature: float = 0.2,
     ) -> None:
         super().__init__()
         self.d_model = gnn_hidden
         self.ih_tau_init = float(ih_tau_init)
         self.ih_tau_final = float(ih_tau_final)
+        self.info_nce_temperature = float(info_nce_temperature)
 
         self.gnn_c = GNNEncoder(chem_dim, edge_dim, gnn_hidden, gnn_layers, gnn_dropout)
         self.gnn_p = GNNEncoder(phys_dim, edge_dim, gnn_hidden, gnn_layers, gnn_dropout)
@@ -387,9 +373,10 @@ class DoubleGCNTransformerModel(nn.Module):
             topk=ih_topk,
         )
 
-        # BYOL-style asymmetric predictors for cross-modal EMA distillation
-        # (Plan 4). Student-only; no EMA copy. Applied node-wise on the
-        # student GCN outputs, with stop-gradient on EMA teacher targets.
+        # Asymmetric predictors for cross-modal InfoNCE distillation
+        # (CLIP-style). Applied on graph-pooled student GCN outputs;
+        # EMA teacher (opposite branch) graph pool is the positive key,
+        # other graphs in the batch are negatives. Stop-grad on keys.
         self.predictor_c2p = nn.Sequential(
             nn.Linear(gnn_hidden, gnn_hidden),
             nn.BatchNorm1d(gnn_hidden),
@@ -517,22 +504,6 @@ class DoubleGCNTransformerModel(nn.Module):
         phys_nodes = self.teacher_gnn_p(data.x_phys, data.edge_index, data.edge_attr, data.batch)
         return chem_nodes, phys_nodes
 
-    def _apply_node_predictor(
-        self,
-        predictor: nn.Module,
-        x: torch.Tensor,
-        pad_mask: torch.Tensor,
-    ) -> torch.Tensor:
-        # x: [B, N, d] (zero on padded positions). BN runs only on valid nodes
-        # to keep its running stats clean.
-        valid = ~pad_mask
-        if valid.any():
-            y_valid = predictor(x[valid])
-            out = torch.zeros_like(x)
-            out[valid] = y_valid
-            return out
-        return torch.zeros_like(x)
-
     def _pad_dual_sequences(self, chem_nodes: torch.Tensor, phys_nodes: torch.Tensor, batch: torch.Tensor):
         batch_size = int(batch.max().item()) + 1
         seqs_c, seqs_p = [], []
@@ -594,18 +565,26 @@ class DoubleGCNTransformerModel(nn.Module):
         student_graph_repr = masked_mean_pool(student_fused_seq, pad_mask)
         student_logits = self.classifier(student_graph_repr)
 
-        # Cross-modal asymmetric predictors (Plan 4): student-only, node-wise.
-        student_c_to_p = self._apply_node_predictor(self.predictor_c2p, student_c, pad_mask)
-        student_p_to_c = self._apply_node_predictor(self.predictor_p2c, student_p, pad_mask)
+        # Graph-level pools for cross-modal InfoNCE.
+        student_c_graph = masked_mean_pool(student_c, pad_mask)
+        student_p_graph = masked_mean_pool(student_p, pad_mask)
+        teacher_c_graph = masked_mean_pool(teacher_c, pad_mask)
+        teacher_p_graph = masked_mean_pool(teacher_p, pad_mask)
+
+        # Asymmetric predictors at graph level. Targets (EMA teacher) detached.
+        q_c_to_p = self.predictor_c2p(student_c_graph)
+        q_p_to_c = self.predictor_p2c(student_p_graph)
 
         return {
             "student_phys_seq": student_p,
             "student_chem_seq": student_c,
             "student_logits": student_logits,
-            "student_chem_to_phys": student_c_to_p,
-            "student_phys_to_chem": student_p_to_c,
+            "student_chem_to_phys_graph": q_c_to_p,
+            "student_phys_to_chem_graph": q_p_to_c,
             "teacher_phys_seq": teacher_p.detach(),
             "teacher_chem_seq": teacher_c.detach(),
+            "teacher_phys_graph": teacher_p_graph.detach(),
+            "teacher_chem_graph": teacher_c_graph.detach(),
             "pad_mask": pad_mask,
             "debug_info": {
                 "teacher_edge_dropout": teacher_edge_dropout,
@@ -634,19 +613,32 @@ class DoubleGCNTransformerModel(nn.Module):
         return 0.5 * (loss_phys + loss_chem)
 
     def compute_cross_distill_loss(self, stage_out):
-        # Predictor outputs target the OPPOSITE-branch EMA teacher embeddings.
-        # Teacher tensors are already detached in stage_out.
-        loss_c_to_p = masked_cosine_distance(
-            stage_out["student_chem_to_phys"],
-            stage_out["teacher_phys_seq"],
-            stage_out["pad_mask"],
-        )
-        loss_p_to_c = masked_cosine_distance(
-            stage_out["student_phys_to_chem"],
-            stage_out["teacher_chem_seq"],
-            stage_out["pad_mask"],
-        )
-        return 0.5 * (loss_c_to_p + loss_p_to_c)
+        # Symmetric InfoNCE on graph-pooled representations. The student
+        # predictor output is the query; the opposite-branch EMA teacher pool
+        # (already detached) is the positive key; other graphs in the batch
+        # are negatives. Lower bound on I(chem; phys) per van den Oord 2018.
+        q_c2p = stage_out["student_chem_to_phys_graph"]
+        q_p2c = stage_out["student_phys_to_chem_graph"]
+        k_p = stage_out["teacher_phys_graph"]
+        k_c = stage_out["teacher_chem_graph"]
+
+        batch_size = q_c2p.size(0)
+        if batch_size < 2:
+            return q_c2p.new_zeros(())
+
+        tau = max(self.info_nce_temperature, 1e-3)
+        q_c2p = F.normalize(q_c2p, dim=-1, eps=1e-8)
+        q_p2c = F.normalize(q_p2c, dim=-1, eps=1e-8)
+        k_p = F.normalize(k_p, dim=-1, eps=1e-8)
+        k_c = F.normalize(k_c, dim=-1, eps=1e-8)
+
+        logits_c2p = (q_c2p @ k_p.t()) / tau
+        logits_p2c = (q_p2c @ k_c.t()) / tau
+        labels = torch.arange(batch_size, device=q_c2p.device)
+
+        loss_c2p = F.cross_entropy(logits_c2p, labels)
+        loss_p2c = F.cross_entropy(logits_p2c, labels)
+        return 0.5 * (loss_c2p + loss_p2c)
 
     def forward(self, data):
         student_chem, student_phys = self._run_frozen_student_gcn(data)

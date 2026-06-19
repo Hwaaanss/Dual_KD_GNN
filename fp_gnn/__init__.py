@@ -1,1 +1,0 @@
-"""FP-GNN model package."""

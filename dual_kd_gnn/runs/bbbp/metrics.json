@@ -1,0 +1,15 @@
+{
+  "model_name": "Double_GCN_Transformer",
+  "model_slug": "dual_kd_gnn",
+  "dataset_name": "bbbp",
+  "target_columns": [
+    "p_np"
+  ],
+  "num_targets": 1,
+  "best_val_auc": 0.946014277215943,
+  "best_epoch": 7,
+  "test_roc_auc": 0.9579119571683521,
+  "num_parameters": 3041803,
+  "uses_dual_features": true,
+  "elapsed_seconds": 224.23
+}

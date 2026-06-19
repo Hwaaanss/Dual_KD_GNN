@@ -1,26 +1,31 @@
 # Benchmark Source Notes
 
-This document records the primary source used while modularizing the notebook models.
+This project evaluates a single model, `dual_kd_gnn`, across several MoleculeNet
+classification datasets. (Earlier revisions compared multiple GNN baselines on
+Tox21; those baseline packages have been removed.)
 
-## Alignment summary
+## Model
 
-- `attentive_fp`: switched to the official `torch_geometric.nn.models.AttentiveFP` implementation so the modularized code follows the published AttentiveFP architecture directly.
-- `d_mpnn`: kept as a lightweight local implementation of directed bond message passing with descriptor concatenation, following the D-MPNN / Chemprop paper structure without vendoring the full Chemprop training stack.
-- `fp_gnn`: kept as a local modular implementation that preserves the official FP-GNN paper and repository pattern of combining a graph branch with a fingerprint branch.
-- `ml_mpnn`: kept as a paper-guided local implementation of the multi-level message passing architecture from AdvProp.
-- `mlfgnn`: kept as a paper-guided local implementation of the multi-level fusion architecture; no official GitHub repository was identified during this refactor.
-- `multichem`: kept as a local modular implementation guided by the official MultiChem paper and repository layout.
-- `dual_kd_gnn`: original experimental architecture from the notebook, modularized without changing its core design.
+- `dual_kd_gnn`: dual-branch GCN (chemical + physical atom features) with an
+  EMA-teacher knowledge-distillation stage, a transformer fusion stage, and a
+  codebook-shared interaction-tensor classifier head. The classifier head and
+  loss adapt to the number of target tasks of the active dataset.
 
-## Primary sources
+## Datasets (MoleculeNet, via DeepChem S3)
 
-- AttentiveFP paper: https://pubs.acs.org/doi/10.1021/acs.jmedchem.9b00959
-- PyG AttentiveFP reference: https://github.com/pyg-team/pytorch_geometric
-- D-MPNN / Chemprop paper: https://chemrxiv.org/engage/chemrxiv/article-details/60c743f4bb8c1a1f7d3da3f9
-- Chemprop repository: https://github.com/chemprop/chemprop
-- FP-GNN paper: https://academic.oup.com/bib/article/23/6/bbac408/6702671
-- FP-GNN repository: https://github.com/idrugLab/FP-GNN
-- ML-MPNN paper within AdvProp: https://academic.oup.com/bioinformatics/article-abstract/38/9/2579/6531963
-- MLFGNN paper: https://pubs.acs.org/doi/abs/10.1021/acs.jcim.5c01525
-- MultiChem paper: https://biodatamining.biomedcentral.com/articles/10.1186/s13040-024-00419-4
-- MultiChem repository: https://github.com/DMnBI/MultiChem
+All CSVs are downloaded from
+`https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/` (see
+[../scripts/download_data.py](../scripts/download_data.py) and
+[../commands.md](../commands.md)).
+
+- BACE: `bace.csv` — beta-secretase 1 (BACE-1) inhibition, 1 task.
+- BBBP: `BBBP.csv` — blood-brain barrier penetration, 1 task.
+- SIDER: `sider.csv.gz` — 27 adverse-reaction system-organ-class tasks.
+- Tox21: `tox21.csv.gz` — 12 toxicity assay tasks.
+- ClinTox: `clintox.csv.gz` — FDA approval vs. clinical-trial toxicity, 2 tasks.
+
+## Primary references
+
+- MoleculeNet benchmark: https://moleculenet.org/
+- MoleculeNet paper: https://pubs.rsc.org/en/content/articlehtml/2018/sc/c7sc02664a
+- DeepChem (dataset hosting): https://github.com/deepchem/deepchem

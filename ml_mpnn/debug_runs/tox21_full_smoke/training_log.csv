@@ -1,2 +1,0 @@
-phase,epoch,global_epoch,train_loss,val_loss,train_metric,val_metric,train_distill_loss,val_distill_loss
-train,1,1,0.27221035463165266,0.21550198495388032,0.667498078373888,0.7573829657864444,nan,nan

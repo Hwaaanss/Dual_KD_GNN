@@ -3,38 +3,44 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from attentive_fp.main import MODEL_SPEC as ATTENTIVE_FP_SPEC
+import pandas as pd
+
 from common.config import get_project_root
-from common.runner import add_shared_training_arguments, collect_override_hparams, run_experiment
-from d_mpnn.main import MODEL_SPEC as D_MPNN_SPEC
-from dual_kd_gnn.main import MODEL_SPEC as DUAL_KD_GNN_SPEC
-from fp_gnn.main import MODEL_SPEC as FP_GNN_SPEC
-from mlfgnn.main import MODEL_SPEC as MLFGNN_SPEC
-from ml_mpnn.main import MODEL_SPEC as ML_MPNN_SPEC
-from multichem.main import MODEL_SPEC as MULTICHEM_SPEC
-
-
-ALL_SPECS = [
-    ATTENTIVE_FP_SPEC,
-    D_MPNN_SPEC,
-    FP_GNN_SPEC,
-    ML_MPNN_SPEC,
-    MLFGNN_SPEC,
-    MULTICHEM_SPEC,
-    DUAL_KD_GNN_SPEC,
-]
-SPEC_BY_SLUG = {spec.slug: spec for spec in ALL_SPECS}
+from common.datasets import (
+    DEFAULT_BENCHMARK_DATASETS,
+    available_datasets,
+    get_dataset_spec,
+    resolve_target_columns,
+)
+from common.io_utils import ensure_dir
+from common.runner import add_general_training_arguments, collect_override_hparams, run_experiment
+from dual_kd_gnn.main import (
+    MODEL_SPEC,
+    add_dual_model_arguments,
+    collect_dual_hparam_overrides,
+    collect_dual_model_kwargs,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run one or more modularized molecular property prediction models.")
-    add_shared_training_arguments(parser)
-    parser.add_argument(
-        "--models",
-        nargs="+",
-        default=["all"],
-        help="Model slugs to run. Use 'all' to train every model sequentially.",
+    parser = argparse.ArgumentParser(
+        description="Benchmark the dual_kd_gnn model across multiple MoleculeNet datasets.",
     )
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        default=DEFAULT_BENCHMARK_DATASETS,
+        choices=available_datasets(),
+        help="Datasets to benchmark sequentially. Defaults to BACE, BBBP, SIDER, Tox21, ClinTox.",
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        default=get_project_root() / "results" / "artifacts",
+        help="Directory for the aggregated benchmark summary table.",
+    )
+    add_general_training_arguments(parser)
+    add_dual_model_arguments(parser)
     return parser
 
 
@@ -42,37 +48,75 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    requested_models = args.models
-    if requested_models == ["all"] or "all" in requested_models:
-        specs = ALL_SPECS
-    else:
-        unknown = [slug for slug in requested_models if slug not in SPEC_BY_SLUG]
-        if unknown:
-            parser.error(f"Unknown model slugs: {', '.join(unknown)}")
-        specs = [SPEC_BY_SLUG[slug] for slug in requested_models]
+    spec = MODEL_SPEC
+    model_kwargs = collect_dual_model_kwargs(args)
+    hparam_overrides = collect_dual_hparam_overrides(args)
+    hparam_overrides.update(
+        {key: value for key, value in collect_override_hparams(args).items() if value is not None}
+    )
 
-    overrides = collect_override_hparams(args)
-    project_root = get_project_root()
-    summary = []
-    for spec in specs:
+    model_dir = get_project_root() / spec.slug
+    summary_rows: list[dict[str, object]] = []
+    skipped: list[str] = []
+
+    for name in args.datasets:
+        dataset_spec = get_dataset_spec(name)
+        data_path = dataset_spec.data_path()
+        if not data_path.exists():
+            print(
+                f"[skip] {name}: dataset file not found at {data_path}. "
+                f"Run: python scripts/download_data.py {name}"
+            )
+            skipped.append(name)
+            continue
+
+        target_columns = resolve_target_columns(dataset_spec, data_path)
         print(f"\n{'=' * 72}")
-        print(f"Training model: {spec.name}")
+        print(f"Benchmarking {spec.name} on {name} ({len(target_columns)} task(s))")
         print(f"{'=' * 72}")
         metrics = run_experiment(
             spec=spec,
-            data_path=args.data_path,
-            dataset_name=args.dataset_name,
+            data_path=str(data_path),
+            dataset_name=dataset_spec.name,
             seed=args.seed,
             device_name=args.device,
-            target_columns=args.target_columns,
-            model_dir=project_root / spec.slug,
-            overrides=overrides,
+            target_columns=target_columns,
+            model_dir=model_dir,
+            overrides=hparam_overrides,
+            model_kwargs=model_kwargs,
+            smiles_column=dataset_spec.smiles_column,
         )
-        summary.append((spec.name, metrics["test_roc_auc"]))
+        summary_rows.append(
+            {
+                "dataset": name,
+                "num_tasks": metrics["num_targets"],
+                "test_roc_auc": metrics["test_roc_auc"],
+                "best_val_auc": metrics["best_val_auc"],
+                "num_parameters": metrics["num_parameters"],
+                "elapsed_seconds": metrics["elapsed_seconds"],
+            }
+        )
 
-    print("\nFinal test ROC-AUC summary")
-    for model_name, score in summary:
-        print(f"  {model_name:<24} {score:.4f}")
+    if not summary_rows:
+        raise SystemExit(
+            "No datasets were benchmarked. Download the data first (see commands.md)."
+        )
+
+    results_dir = ensure_dir(args.results_dir)
+    summary_path = results_dir / "benchmark_summary.csv"
+    pd.DataFrame(summary_rows).to_csv(summary_path, index=False)
+
+    print("\nBenchmark summary (test ROC-AUC)")
+    for row in summary_rows:
+        print(
+            f"  {str(row['dataset']):<10} "
+            f"tasks={row['num_tasks']:<3} "
+            f"test_roc_auc={float(row['test_roc_auc']):.4f}"
+        )
+    if skipped:
+        print(f"\nSkipped (missing data): {', '.join(skipped)}")
+    print(f"\nSaved benchmark summary to: {summary_path}")
+    print("Run `python results/main.py` to build per-dataset curves and the full results table.")
 
 
 if __name__ == "__main__":
