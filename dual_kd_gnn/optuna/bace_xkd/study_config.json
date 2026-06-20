@@ -1,0 +1,13 @@
+{
+  "study_name": "bace_xkd",
+  "storage": "sqlite:////home/dioxide421/Dual_Branch_DR/dual_kd_gnn/optuna/bace_xkd/study.db",
+  "dataset": "bace",
+  "data_path": "/home/dioxide421/Dual_Branch_DR/data/bace.csv",
+  "dataset_name": "bace",
+  "smiles_column": "mol",
+  "target_columns": [
+    "Class"
+  ],
+  "seed": 42,
+  "device": "cuda"
+}

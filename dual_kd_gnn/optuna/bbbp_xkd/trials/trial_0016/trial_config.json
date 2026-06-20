@@ -1,0 +1,36 @@
+{
+  "trial_number": 16,
+  "dataset_name": "bbbp_optuna_trial_0016",
+  "model_kwargs": {
+    "gnn_hidden": 384,
+    "gnn_layers": 3,
+    "gnn_dropout": 0.3707787034667025,
+    "nhead": 8,
+    "tf_layers": 1,
+    "dim_ff": 768,
+    "tf_dropout": 0.32068707685083564,
+    "ih_rank": 64,
+    "ih_symmetric": true,
+    "ih_proj_dim": 128,
+    "ih_num_prototypes": 12,
+    "ih_assignment_mode": "hard",
+    "ih_diversity_weight": 0.02482414567239567,
+    "info_nce_temperature": 0.2
+  },
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.0015532548488051984,
+    "weight_decay": 2.541835987812507e-05,
+    "num_epochs": 60,
+    "patience": 12,
+    "gcn_pretrain_epochs": 40,
+    "transformer_epochs": 60,
+    "pretrain_lr": 0.00014003524496619986,
+    "transformer_lr": 0.0015532548488051984,
+    "ema_decay": 0.9688045519589811,
+    "ema_decay_init": 0.98,
+    "distill_weight": 0.001757420475417591,
+    "cross_distill_weight": 0.05
+  },
+  "seed": 42
+}

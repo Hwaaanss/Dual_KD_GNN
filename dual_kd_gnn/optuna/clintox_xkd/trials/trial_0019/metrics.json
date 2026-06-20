@@ -1,0 +1,17 @@
+{
+  "model_name": "Double_GCN_Transformer",
+  "model_slug": "dual_kd_gnn",
+  "dataset_name": "clintox_optuna_trial_0019",
+  "target_columns": [
+    "FDA_APPROVED",
+    "CT_TOX"
+  ],
+  "num_targets": 2,
+  "best_val_auc": 0.970308676830416,
+  "best_epoch": 25,
+  "test_roc_auc": NaN,
+  "num_parameters": 6114198,
+  "uses_dual_features": true,
+  "elapsed_seconds": 92.87,
+  "status": "complete"
+}

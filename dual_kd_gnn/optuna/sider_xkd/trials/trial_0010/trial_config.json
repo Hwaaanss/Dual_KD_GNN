@@ -1,0 +1,36 @@
+{
+  "trial_number": 10,
+  "dataset_name": "sider_optuna_trial_0010",
+  "model_kwargs": {
+    "gnn_hidden": 256,
+    "gnn_layers": 4,
+    "gnn_dropout": 0.43667571345982836,
+    "nhead": 8,
+    "tf_layers": 2,
+    "dim_ff": 512,
+    "tf_dropout": 0.29737386073602134,
+    "ih_rank": 64,
+    "ih_symmetric": false,
+    "ih_proj_dim": 256,
+    "ih_num_prototypes": 6,
+    "ih_assignment_mode": "hard",
+    "ih_diversity_weight": 0.014264174488393642,
+    "info_nce_temperature": 0.2
+  },
+  "hparams": {
+    "batch_size": 64,
+    "lr": 0.0012617672582929693,
+    "weight_decay": 6.957276338182244e-05,
+    "num_epochs": 60,
+    "patience": 12,
+    "gcn_pretrain_epochs": 40,
+    "transformer_epochs": 60,
+    "pretrain_lr": 0.0006774844319054256,
+    "transformer_lr": 0.0012617672582929693,
+    "ema_decay": 0.9679864407450071,
+    "ema_decay_init": 0.98,
+    "distill_weight": 0.0016505753633159809,
+    "cross_distill_weight": 0.1
+  },
+  "seed": 42
+}

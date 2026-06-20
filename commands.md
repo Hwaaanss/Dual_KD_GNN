@@ -68,7 +68,7 @@ artifacts under `dual_kd_gnn/runs/<dataset>/`.
 ```bash
 python dual_kd_gnn/main.py --dataset bbbp
 python dual_kd_gnn/main.py --dataset tox21
-python dual_kd_gnn/main.py --dataset sider --gcn-pretrain-epochs 60 --transformer-epochs 80
+python dual_kd_gnn/main.py --dataset sider --gcn-pretrain-epochs 150 --transformer-epochs 150
 ```
 
 > Device defaults to **cuda**. Override with `--device cpu`, `--device cuda:1`, etc.
@@ -108,7 +108,7 @@ Use a dataset-specific `--study-name` so studies do not collide.
 python dual_kd_gnn/tune_optuna.py --dataset bbbp  --study-name bbbp_xkd  --n-trials 30
 python dual_kd_gnn/tune_optuna.py --dataset tox21 --study-name tox21_xkd --n-trials 50
 python dual_kd_gnn/tune_optuna.py --dataset sider --study-name sider_xkd --n-trials 40 \
-    --gcn-pretrain-epochs 40 --transformer-epochs 60 --patience 12
+    --gcn-pretrain-epochs 150 --transformer-epochs 150 --patience 10
 ```
 
 Study artifacts (SQLite DB, `best_config.json`, `trials.csv`) are saved under

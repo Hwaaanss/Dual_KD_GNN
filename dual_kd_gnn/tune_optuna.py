@@ -60,9 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sampler", choices=["tpe", "random"], default="tpe")
     parser.add_argument("--pruner", choices=["hyperband", "median", "none"], default="hyperband")
     parser.add_argument("--pruner-warmup-steps", type=int, default=8)
-    parser.add_argument("--gcn-pretrain-epochs", type=int, default=40)
-    parser.add_argument("--transformer-epochs", type=int, default=60)
-    parser.add_argument("--patience", type=int, default=12)
+    parser.add_argument("--gcn-pretrain-epochs", type=int, default=150)
+    parser.add_argument("--transformer-epochs", type=int, default=150)
+    parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--replay-best", type=Path, default=None, help="Train once from a saved best_config.json.")
     parser.add_argument("--replay-run-name", default=None, help="Run directory name for --replay-best.")
     return parser
@@ -95,15 +95,19 @@ def sample_model_kwargs(trial: optuna.Trial) -> dict[str, Any]:
     return {
         "gnn_hidden": gnn_hidden,
         "gnn_layers": trial.suggest_int("gnn_layers", 2, 4),
-        "gnn_dropout": trial.suggest_float("gnn_dropout", 0.1, 0.55),
+        # Best epoch hits at 7-15 for most datasets -> overfits fast. Bias dropout up,
+        # drop the near-zero floor that the baseline (0.4) already beats.
+        "gnn_dropout": trial.suggest_float("gnn_dropout", 0.2, 0.55),
         "nhead": trial.suggest_categorical("nhead", [4, 8]),
         "tf_layers": trial.suggest_int("tf_layers", 1, 3),
         "dim_ff": gnn_hidden * ff_multiplier,
-        "tf_dropout": trial.suggest_float("tf_dropout", 0.05, 0.45),
+        "tf_dropout": trial.suggest_float("tf_dropout", 0.1, 0.5),
         "ih_rank": trial.suggest_categorical("ih_rank", [16, 32, 64]),
         "ih_symmetric": trial.suggest_categorical("ih_symmetric", [True, False]),
         "ih_proj_dim": trial.suggest_categorical("ih_proj_dim", [0, 128, 256]),
-        "ih_num_prototypes": trial.suggest_categorical("ih_num_prototypes", [3, 4, 6, 8, 12]),
+        # sider (27 tasks) / tox21 (12 tasks) are the weak spots; give the shared
+        # codebook more prototypes and drop 3 (too few to help multi-task heads).
+        "ih_num_prototypes": trial.suggest_categorical("ih_num_prototypes", [4, 6, 8, 12, 16]),
         "ih_assignment_mode": trial.suggest_categorical("ih_assignment_mode", ["hard", "soft", "sparse"]),
         "ih_diversity_weight": trial.suggest_float("ih_diversity_weight", 1e-4, 1e-1, log=True),
         "info_nce_temperature": trial.suggest_categorical("info_nce_temperature", [0.1, 0.2, 0.5]),
@@ -111,16 +115,20 @@ def sample_model_kwargs(trial: optuna.Trial) -> dict[str, Any]:
 
 
 def sample_hparams(trial: optuna.Trial, args: argparse.Namespace) -> dict[str, Any]:
-    transformer_lr = trial.suggest_float("transformer_lr", 1e-5, 3e-3, log=True)
+    # Fast early-overfit at lr=1e-3 -> keep room to go lower, but a 1e-5 floor can't
+    # converge in ~60 transformer epochs and just wastes trials; cap below the
+    # baseline's noisy 3e-3 ceiling.
+    transformer_lr = trial.suggest_float("transformer_lr", 1e-4, 2e-3, log=True)
     return {
         "batch_size": trial.suggest_categorical("batch_size", [64, 128]),
         "lr": transformer_lr,
-        "weight_decay": trial.suggest_float("weight_decay", 1e-6, 3e-3, log=True),
+        # Allow stronger regularization for the weak multi-task datasets; 1e-6 is negligible.
+        "weight_decay": trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True),
         "num_epochs": max(args.gcn_pretrain_epochs, args.transformer_epochs),
         "patience": args.patience,
         "gcn_pretrain_epochs": args.gcn_pretrain_epochs,
         "transformer_epochs": args.transformer_epochs,
-        "pretrain_lr": trial.suggest_float("pretrain_lr", 1e-5, 3e-3, log=True),
+        "pretrain_lr": trial.suggest_float("pretrain_lr", 1e-4, 2e-3, log=True),
         "transformer_lr": transformer_lr,
         "ema_decay": trial.suggest_float("ema_decay", 0.95, 0.999),
         "ema_decay_init": trial.suggest_categorical("ema_decay_init", [0.90, 0.95, 0.98, 0.99]),

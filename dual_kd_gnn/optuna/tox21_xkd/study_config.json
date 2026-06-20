@@ -1,0 +1,24 @@
+{
+  "study_name": "tox21_xkd",
+  "storage": "sqlite:////home/dioxide421/Dual_Branch_DR/dual_kd_gnn/optuna/tox21_xkd/study.db",
+  "dataset": "tox21",
+  "data_path": "/home/dioxide421/Dual_Branch_DR/data/tox21.csv",
+  "dataset_name": "tox21",
+  "smiles_column": "smiles",
+  "target_columns": [
+    "NR-AR",
+    "NR-AR-LBD",
+    "NR-AhR",
+    "NR-Aromatase",
+    "NR-ER",
+    "NR-ER-LBD",
+    "NR-PPAR-gamma",
+    "SR-ARE",
+    "SR-ATAD5",
+    "SR-HSE",
+    "SR-MMP",
+    "SR-p53"
+  ],
+  "seed": 42,
+  "device": "cuda"
+}
