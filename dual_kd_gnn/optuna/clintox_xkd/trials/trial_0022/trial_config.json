@@ -1,0 +1,36 @@
+{
+  "trial_number": 22,
+  "dataset_name": "clintox_optuna_trial_0022",
+  "model_kwargs": {
+    "gnn_hidden": 384,
+    "gnn_layers": 2,
+    "gnn_dropout": 0.44511895041505883,
+    "nhead": 4,
+    "tf_layers": 2,
+    "dim_ff": 1536,
+    "tf_dropout": 0.24200943955390536,
+    "ih_rank": 64,
+    "ih_symmetric": false,
+    "ih_proj_dim": 0,
+    "ih_num_prototypes": 8,
+    "ih_assignment_mode": "hard",
+    "ih_diversity_weight": 0.005248593450366939,
+    "info_nce_temperature": 0.2
+  },
+  "hparams": {
+    "batch_size": 64,
+    "lr": 0.0005023229048955778,
+    "weight_decay": 2.3154493407905366e-05,
+    "num_epochs": 150,
+    "patience": 10,
+    "gcn_pretrain_epochs": 150,
+    "transformer_epochs": 150,
+    "pretrain_lr": 0.0002146691678835553,
+    "transformer_lr": 0.0005023229048955778,
+    "ema_decay": 0.9820590252117115,
+    "ema_decay_init": 0.9,
+    "distill_weight": 0.027035634613022146,
+    "cross_distill_weight": 0.02
+  },
+  "seed": 42
+}

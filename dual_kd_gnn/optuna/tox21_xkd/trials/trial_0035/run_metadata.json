@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-21T03:44:22",
+  "study_name": "tox21_xkd",
+  "trial_number": 35,
+  "model_kwargs": {
+    "gnn_hidden": 384,
+    "gnn_layers": 4,
+    "gnn_dropout": 0.43468165707311585,
+    "nhead": 4,
+    "tf_layers": 2,
+    "dim_ff": 768,
+    "tf_dropout": 0.1658615995224863,
+    "ih_rank": 32,
+    "ih_symmetric": true,
+    "ih_proj_dim": 256,
+    "ih_num_prototypes": 8,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.04515609324076549,
+    "info_nce_temperature": 0.5
+  },
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.0003077875575456168,
+    "weight_decay": 6.206903888723361e-05,
+    "num_epochs": 150,
+    "patience": 10,
+    "gcn_pretrain_epochs": 150,
+    "transformer_epochs": 150,
+    "pretrain_lr": 0.0011330371802474465,
+    "transformer_lr": 0.0003077875575456168,
+    "ema_decay": 0.9933521584624373,
+    "ema_decay_init": 0.9,
+    "distill_weight": 0.0012835361817762675,
+    "cross_distill_weight": 0.1
+  },
+  "device": "cuda",
+  "status": "complete"
+}

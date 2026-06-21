@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-20T22:23:08",
+  "study_name": "sider_xkd",
+  "trial_number": 35,
+  "model_kwargs": {
+    "gnn_hidden": 384,
+    "gnn_layers": 3,
+    "gnn_dropout": 0.4934040284985486,
+    "nhead": 4,
+    "tf_layers": 2,
+    "dim_ff": 768,
+    "tf_dropout": 0.2121189000956856,
+    "ih_rank": 32,
+    "ih_symmetric": true,
+    "ih_proj_dim": 256,
+    "ih_num_prototypes": 4,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.005699743278117304,
+    "info_nce_temperature": 0.2
+  },
+  "hparams": {
+    "batch_size": 64,
+    "lr": 0.0002184907490800008,
+    "weight_decay": 3.6260656751166175e-05,
+    "num_epochs": 150,
+    "patience": 10,
+    "gcn_pretrain_epochs": 150,
+    "transformer_epochs": 150,
+    "pretrain_lr": 0.0002499455520470423,
+    "transformer_lr": 0.0002184907490800008,
+    "ema_decay": 0.9913554495460248,
+    "ema_decay_init": 0.98,
+    "distill_weight": 0.006790248410438337,
+    "cross_distill_weight": 0.1
+  },
+  "device": "cuda",
+  "status": "pruned"
+}

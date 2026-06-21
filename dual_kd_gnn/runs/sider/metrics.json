@@ -32,10 +32,10 @@
     "Injury, poisoning and procedural complications"
   ],
   "num_targets": 27,
-  "best_val_auc": 0.6238254817691116,
-  "best_epoch": 15,
-  "test_roc_auc": 0.6109985757019039,
-  "num_parameters": 3055297,
+  "best_val_auc": 0.6780312976057085,
+  "best_epoch": 37,
+  "test_roc_auc": 0.6665415190376748,
+  "num_parameters": 3146999,
   "uses_dual_features": true,
-  "elapsed_seconds": 199.09
+  "elapsed_seconds": 363.58
 }

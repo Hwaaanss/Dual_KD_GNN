@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-20T13:00:55",
+  "study_name": "bbbp_xkd",
+  "trial_number": 39,
+  "model_kwargs": {
+    "gnn_hidden": 256,
+    "gnn_layers": 3,
+    "gnn_dropout": 0.4723086533149828,
+    "nhead": 8,
+    "tf_layers": 1,
+    "dim_ff": 768,
+    "tf_dropout": 0.2732375019766433,
+    "ih_rank": 32,
+    "ih_symmetric": true,
+    "ih_proj_dim": 128,
+    "ih_num_prototypes": 4,
+    "ih_assignment_mode": "hard",
+    "ih_diversity_weight": 0.0069630564548481995,
+    "info_nce_temperature": 0.2
+  },
+  "hparams": {
+    "batch_size": 64,
+    "lr": 0.0018655734725761264,
+    "weight_decay": 1.0343776657814245e-05,
+    "num_epochs": 150,
+    "patience": 10,
+    "gcn_pretrain_epochs": 150,
+    "transformer_epochs": 150,
+    "pretrain_lr": 0.00039853342439392307,
+    "transformer_lr": 0.0018655734725761264,
+    "ema_decay": 0.9775564552263366,
+    "ema_decay_init": 0.98,
+    "distill_weight": 0.006052285491959886,
+    "cross_distill_weight": 0.05
+  },
+  "device": "cuda",
+  "status": "complete"
+}

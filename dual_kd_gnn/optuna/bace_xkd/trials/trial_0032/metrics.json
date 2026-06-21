@@ -1,0 +1,16 @@
+{
+  "model_name": "Double_GCN_Transformer",
+  "model_slug": "dual_kd_gnn",
+  "dataset_name": "bace_optuna_trial_0032",
+  "target_columns": [
+    "Class"
+  ],
+  "num_targets": 1,
+  "best_val_auc": 0.5408915408915409,
+  "best_epoch": 7,
+  "test_roc_auc": NaN,
+  "num_parameters": 4782613,
+  "uses_dual_features": true,
+  "elapsed_seconds": 215.71,
+  "status": "pruned"
+}

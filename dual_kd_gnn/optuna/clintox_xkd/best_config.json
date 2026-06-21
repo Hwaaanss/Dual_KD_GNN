@@ -69,6 +69,6 @@
     "cross_distill_weight": 0.02
   },
   "metric": "best_val_auc",
-  "saved_at": "2026-06-19T15:49:04",
+  "saved_at": "2026-06-20T18:29:04",
   "replay_command": "python dual_kd_gnn/tune_optuna.py --replay-best /home/dioxide421/Dual_Branch_DR/dual_kd_gnn/optuna/clintox_xkd/best_config.json"
 }
