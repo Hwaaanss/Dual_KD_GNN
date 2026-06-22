@@ -6,11 +6,11 @@
     "Class"
   ],
   "num_targets": 1,
-  "best_val_auc": 0.871884871884872,
-  "best_epoch": 33,
+  "best_val_auc": 0.7323622323622324,
+  "best_epoch": 7,
   "test_roc_auc": NaN,
-  "num_parameters": 1209125,
+  "num_parameters": 1608213,
   "uses_dual_features": true,
-  "elapsed_seconds": 349.64,
-  "status": "complete"
+  "elapsed_seconds": 166.56,
+  "status": "pruned"
 }

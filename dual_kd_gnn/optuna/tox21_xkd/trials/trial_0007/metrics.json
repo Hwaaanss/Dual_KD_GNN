@@ -17,11 +17,11 @@
     "SR-p53"
   ],
   "num_targets": 12,
-  "best_val_auc": 0.8243202829310702,
-  "best_epoch": 14,
+  "best_val_auc": 0.7984901332417141,
+  "best_epoch": 2,
   "test_roc_auc": NaN,
-  "num_parameters": 3441056,
+  "num_parameters": 569304,
   "uses_dual_features": true,
-  "elapsed_seconds": 374.58,
-  "status": "complete"
+  "elapsed_seconds": 1579.36,
+  "status": "pruned"
 }

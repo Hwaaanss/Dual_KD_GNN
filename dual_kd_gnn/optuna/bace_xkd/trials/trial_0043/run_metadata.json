@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-21T17:56:10",
+  "study_name": "bace_xkd",
+  "trial_number": 43,
+  "model_kwargs": {
+    "gnn_hidden": 128,
+    "gnn_layers": 3,
+    "gnn_dropout": 0.4622700247826435,
+    "nhead": 8,
+    "tf_layers": 1,
+    "dim_ff": 256,
+    "tf_dropout": 0.2501235723844901,
+    "ih_rank": 32,
+    "ih_symmetric": false,
+    "ih_proj_dim": 128,
+    "ih_num_prototypes": 4,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.0018685397230973019,
+    "info_nce_temperature": 0.5
+  },
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.0008692029582796265,
+    "weight_decay": 5.465967353537501e-05,
+    "num_epochs": 150,
+    "patience": 10,
+    "gcn_pretrain_epochs": 150,
+    "transformer_epochs": 150,
+    "pretrain_lr": 0.0015837332353515101,
+    "transformer_lr": 0.0008692029582796265,
+    "ema_decay": 0.9899551032585839,
+    "ema_decay_init": 0.99,
+    "distill_weight": 0.04002147923217811,
+    "cross_distill_weight": 0.05
+  },
+  "device": "cuda",
+  "status": "pruned"
+}

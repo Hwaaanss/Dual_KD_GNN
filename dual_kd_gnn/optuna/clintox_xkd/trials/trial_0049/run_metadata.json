@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-21T22:44:17",
+  "study_name": "clintox_xkd",
+  "trial_number": 49,
+  "model_kwargs": {
+    "gnn_hidden": 192,
+    "gnn_layers": 3,
+    "gnn_dropout": 0.3845976821148997,
+    "nhead": 8,
+    "tf_layers": 1,
+    "dim_ff": 768,
+    "tf_dropout": 0.43840174020205264,
+    "ih_rank": 64,
+    "ih_symmetric": false,
+    "ih_proj_dim": 256,
+    "ih_num_prototypes": 8,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.000321790748579671,
+    "info_nce_temperature": 0.5
+  },
+  "hparams": {
+    "batch_size": 256,
+    "lr": 0.0005606307755207253,
+    "weight_decay": 8.46194751923806e-06,
+    "num_epochs": 150,
+    "patience": 10,
+    "gcn_pretrain_epochs": 150,
+    "transformer_epochs": 150,
+    "pretrain_lr": 0.0009693189547072264,
+    "transformer_lr": 0.0005606307755207253,
+    "ema_decay": 0.9846648935023242,
+    "ema_decay_init": 0.99,
+    "distill_weight": 0.005200482917576229,
+    "cross_distill_weight": 0.1
+  },
+  "device": "cuda",
+  "status": "pruned"
+}

@@ -95,9 +95,8 @@ def sample_model_kwargs(trial: optuna.Trial) -> dict[str, Any]:
     return {
         "gnn_hidden": gnn_hidden,
         "gnn_layers": trial.suggest_int("gnn_layers", 2, 4),
-        # Best epoch hits at 7-15 for most datasets -> overfits fast. Bias dropout up,
-        # drop the near-zero floor that the baseline (0.4) already beats.
-        "gnn_dropout": trial.suggest_float("gnn_dropout", 0.2, 0.55),
+        # Tuned optima for bace/clintox/tox21 all cluster at 0.37-0.40; tighten around it.
+        "gnn_dropout": trial.suggest_float("gnn_dropout", 0.3, 0.5),
         "nhead": trial.suggest_categorical("nhead", [4, 8]),
         "tf_layers": trial.suggest_int("tf_layers", 1, 3),
         "dim_ff": gnn_hidden * ff_multiplier,
@@ -109,8 +108,10 @@ def sample_model_kwargs(trial: optuna.Trial) -> dict[str, Any]:
         # codebook more prototypes and drop 3 (too few to help multi-task heads).
         "ih_num_prototypes": trial.suggest_categorical("ih_num_prototypes", [4, 6, 8, 12, 16]),
         "ih_assignment_mode": trial.suggest_categorical("ih_assignment_mode", ["hard", "soft", "sparse"]),
-        "ih_diversity_weight": trial.suggest_float("ih_diversity_weight", 1e-4, 1e-1, log=True),
-        "info_nce_temperature": trial.suggest_categorical("info_nce_temperature", [0.1, 0.2, 0.5]),
+        # Tuned optima land at 4e-4..3e-3; the top 1.5 decades went unused.
+        "ih_diversity_weight": trial.suggest_float("ih_diversity_weight", 1e-4, 1e-2, log=True),
+        # bace/tox21 both hit the 0.5 ceiling; 0.1 never won -> shift the grid up.
+        "info_nce_temperature": trial.suggest_categorical("info_nce_temperature", [0.2, 0.5, 1.0]),
     }
 
 
@@ -120,10 +121,11 @@ def sample_hparams(trial: optuna.Trial, args: argparse.Namespace) -> dict[str, A
     # baseline's noisy 3e-3 ceiling.
     transformer_lr = trial.suggest_float("transformer_lr", 1e-4, 2e-3, log=True)
     return {
-        "batch_size": trial.suggest_categorical("batch_size", [64, 128]),
+        # 64 never won across the tuned datasets; add 256 to probe more stable/large-batch steps.
+        "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256]),
         "lr": transformer_lr,
-        # Allow stronger regularization for the weak multi-task datasets; 1e-6 is negligible.
-        "weight_decay": trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True),
+        # Tuned optima are all 1e-5..2e-4; the upper decades went unused, so pull the ceiling down.
+        "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
         "num_epochs": max(args.gcn_pretrain_epochs, args.transformer_epochs),
         "patience": args.patience,
         "gcn_pretrain_epochs": args.gcn_pretrain_epochs,
@@ -132,7 +134,8 @@ def sample_hparams(trial: optuna.Trial, args: argparse.Namespace) -> dict[str, A
         "transformer_lr": transformer_lr,
         "ema_decay": trial.suggest_float("ema_decay", 0.95, 0.999),
         "ema_decay_init": trial.suggest_categorical("ema_decay_init", [0.90, 0.95, 0.98, 0.99]),
-        "distill_weight": trial.suggest_float("distill_weight", 1e-3, 0.2, log=True),
+        # Tuned optima are all <=0.05 (tox21 near the floor); trim the unused upper end.
+        "distill_weight": trial.suggest_float("distill_weight", 5e-4, 0.1, log=True),
         "cross_distill_weight": trial.suggest_categorical("cross_distill_weight", [0.02, 0.05, 0.1]),
     }
 

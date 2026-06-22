@@ -1,0 +1,36 @@
+{
+  "trial_number": 42,
+  "dataset_name": "bace_optuna_trial_0042",
+  "model_kwargs": {
+    "gnn_hidden": 128,
+    "gnn_layers": 3,
+    "gnn_dropout": 0.40997231241374027,
+    "nhead": 8,
+    "tf_layers": 1,
+    "dim_ff": 256,
+    "tf_dropout": 0.2038086697742412,
+    "ih_rank": 32,
+    "ih_symmetric": false,
+    "ih_proj_dim": 128,
+    "ih_num_prototypes": 4,
+    "ih_assignment_mode": "soft",
+    "ih_diversity_weight": 0.0025505230173650424,
+    "info_nce_temperature": 0.5
+  },
+  "hparams": {
+    "batch_size": 128,
+    "lr": 0.0011134550886326877,
+    "weight_decay": 0.00010057616815923425,
+    "num_epochs": 150,
+    "patience": 10,
+    "gcn_pretrain_epochs": 150,
+    "transformer_epochs": 150,
+    "pretrain_lr": 0.00033828743709593507,
+    "transformer_lr": 0.0011134550886326877,
+    "ema_decay": 0.9988602847094346,
+    "ema_decay_init": 0.99,
+    "distill_weight": 0.07301160462361227,
+    "cross_distill_weight": 0.05
+  },
+  "seed": 42
+}

@@ -7,11 +7,11 @@
     "CT_TOX"
   ],
   "num_targets": 2,
-  "best_val_auc": 0.9163231695840393,
-  "best_epoch": 7,
+  "best_val_auc": 0.9585780161867119,
+  "best_epoch": 18,
   "test_roc_auc": NaN,
-  "num_parameters": 13247126,
+  "num_parameters": 2252694,
   "uses_dual_features": true,
-  "elapsed_seconds": 75.13,
+  "elapsed_seconds": 351.24,
   "status": "pruned"
 }
