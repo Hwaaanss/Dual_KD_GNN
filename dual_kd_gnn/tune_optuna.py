@@ -89,54 +89,141 @@ def storage_url_for(args: argparse.Namespace, study_dir: Path) -> str:
     return f"sqlite:///{db_path.resolve()}"
 
 
-def sample_model_kwargs(trial: optuna.Trial) -> dict[str, Any]:
-    gnn_hidden = trial.suggest_categorical("gnn_hidden", [128, 192, 256, 384])
-    ff_multiplier = trial.suggest_categorical("dim_ff_multiplier", [2, 3, 4])
+# ---------------------------------------------------------------------------
+# Per-dataset Optuna search space.
+#
+# BASE_SEARCH_SPACE defines the default range for every tunable parameter.
+# DATASET_SEARCH_SPACES holds per-dataset overrides: only the listed keys
+# replace the base entry; everything else falls back to BASE_SEARCH_SPACE.
+# resolve_search_space(dataset) merges the two, and run_tuning() selects the
+# dataset automatically from --dataset, so no extra flag is needed.
+#
+# Entry formats consumed by suggest_param():
+#   {"type": "categorical", "choices": [...]}
+#   {"type": "int",   "low": int,   "high": int}
+#   {"type": "float", "low": float, "high": float, "log": bool (default False)}
+# ---------------------------------------------------------------------------
+
+BASE_SEARCH_SPACE: dict[str, dict[str, Any]] = {
+    # model kwargs
+    "gnn_hidden": {"type": "categorical", "choices": [128, 192, 256, 384]},
+    "dim_ff_multiplier": {"type": "categorical", "choices": [2, 3, 4]},
+    "gnn_layers": {"type": "int", "low": 2, "high": 4},
+    "gnn_dropout": {"type": "float", "low": 0.1, "high": 0.55},
+    "nhead": {"type": "categorical", "choices": [4, 8]},
+    "tf_layers": {"type": "int", "low": 1, "high": 3},
+    "tf_dropout": {"type": "float", "low": 0.05, "high": 0.45},
+    "ih_rank": {"type": "categorical", "choices": [16, 32, 64]},
+    "ih_symmetric": {"type": "categorical", "choices": [True, False]},
+    "ih_proj_dim": {"type": "categorical", "choices": [0, 128, 256]},
+    "ih_num_prototypes": {"type": "categorical", "choices": [3, 4, 6, 8, 12]},
+    "ih_assignment_mode": {"type": "categorical", "choices": ["hard", "soft", "sparse"]},
+    "ih_diversity_weight": {"type": "float", "low": 1e-4, "high": 1e-1, "log": True},
+    "info_nce_temperature": {"type": "categorical", "choices": [0.1, 0.2, 0.5]},
+    # hparams
+    "batch_size": {"type": "categorical", "choices": [64, 128]},
+    "transformer_lr": {"type": "float", "low": 1e-5, "high": 3e-3, "log": True},
+    "weight_decay": {"type": "float", "low": 1e-6, "high": 3e-3, "log": True},
+    "pretrain_lr": {"type": "float", "low": 1e-5, "high": 3e-3, "log": True},
+    "ema_decay": {"type": "float", "low": 0.95, "high": 0.999},
+    "ema_decay_init": {"type": "categorical", "choices": [0.90, 0.95, 0.98, 0.99]},
+    "distill_weight": {"type": "float", "low": 1e-3, "high": 0.2, "log": True},
+    "cross_distill_weight": {"type": "categorical", "choices": [0.02, 0.05, 0.1]},
+}
+
+DATASET_SEARCH_SPACES: dict[str, dict[str, dict[str, Any]]] = {
+    # bace: target test 0.900 (val ~= test, no overfit, transformer stage carries the
+    # signal). Push capacity up and bias toward the regions the tuned run preferred.
+    "bace": {
+        "gnn_hidden": {"type": "categorical", "choices": [256, 384, 512]},
+        "tf_layers": {"type": "int", "low": 2, "high": 4},
+        "tf_dropout": {"type": "float", "low": 0.1, "high": 0.3},
+        "ih_proj_dim": {"type": "categorical", "choices": [0, 128]},
+        "ih_num_prototypes": {"type": "categorical", "choices": [4, 6, 8]},
+        "info_nce_temperature": {"type": "categorical", "choices": [0.2, 0.5, 1.0]},
+        "transformer_lr": {"type": "float", "low": 1e-4, "high": 2e-3, "log": True},
+        "pretrain_lr": {"type": "float", "low": 1e-4, "high": 2e-3, "log": True},
+    },
+    # tox21: target test 0.860 (largest gap, 12 tasks, mild underfit). Add capacity and
+    # more codebook prototypes; keep dropout in the higher band the tuned run liked.
+    "tox21": {
+        "gnn_hidden": {"type": "categorical", "choices": [128, 192, 256, 384, 512]},
+        "tf_layers": {"type": "int", "low": 2, "high": 4},
+        "tf_dropout": {"type": "float", "low": 0.2, "high": 0.5},
+        "ih_proj_dim": {"type": "categorical", "choices": [128, 256]},
+        "ih_num_prototypes": {"type": "categorical", "choices": [8, 12, 16, 24]},
+        "ema_decay": {"type": "float", "low": 0.97, "high": 0.999},
+        "info_nce_temperature": {"type": "categorical", "choices": [0.2, 0.5, 1.0]},
+        "distill_weight": {"type": "float", "low": 5e-4, "high": 0.05, "log": True},
+        "transformer_lr": {"type": "float", "low": 1e-4, "high": 2e-3, "log": True},
+    },
+    # clintox: kept on BASE_SEARCH_SPACE unchanged (do not adjust).
+    "clintox": {},
+    # bbbp / sider: not yet specialized; inherit the base space.
+    "bbbp": {},
+    "sider": {},
+}
+
+
+def resolve_search_space(dataset: str) -> dict[str, dict[str, Any]]:
+    """Merge BASE_SEARCH_SPACE with the dataset-specific overrides (if any)."""
+    space = {name: dict(spec) for name, spec in BASE_SEARCH_SPACE.items()}
+    for name, spec in DATASET_SEARCH_SPACES.get(dataset, {}).items():
+        space[name] = dict(spec)
+    return space
+
+
+def suggest_param(trial: optuna.Trial, name: str, space: dict[str, dict[str, Any]]) -> Any:
+    spec = space[name]
+    kind = spec["type"]
+    if kind == "categorical":
+        return trial.suggest_categorical(name, spec["choices"])
+    if kind == "int":
+        return trial.suggest_int(name, spec["low"], spec["high"])
+    if kind == "float":
+        return trial.suggest_float(name, spec["low"], spec["high"], log=spec.get("log", False))
+    raise ValueError(f"Unknown search-space type for {name!r}: {kind!r}")
+
+
+def sample_model_kwargs(trial: optuna.Trial, space: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    gnn_hidden = suggest_param(trial, "gnn_hidden", space)
+    ff_multiplier = suggest_param(trial, "dim_ff_multiplier", space)
     return {
         "gnn_hidden": gnn_hidden,
-        "gnn_layers": trial.suggest_int("gnn_layers", 2, 4),
-        # Tuned optima for bace/clintox/tox21 all cluster at 0.37-0.40; tighten around it.
-        "gnn_dropout": trial.suggest_float("gnn_dropout", 0.3, 0.5),
-        "nhead": trial.suggest_categorical("nhead", [4, 8]),
-        "tf_layers": trial.suggest_int("tf_layers", 1, 3),
+        "gnn_layers": suggest_param(trial, "gnn_layers", space),
+        "gnn_dropout": suggest_param(trial, "gnn_dropout", space),
+        "nhead": suggest_param(trial, "nhead", space),
+        "tf_layers": suggest_param(trial, "tf_layers", space),
         "dim_ff": gnn_hidden * ff_multiplier,
-        "tf_dropout": trial.suggest_float("tf_dropout", 0.1, 0.5),
-        "ih_rank": trial.suggest_categorical("ih_rank", [16, 32, 64]),
-        "ih_symmetric": trial.suggest_categorical("ih_symmetric", [True, False]),
-        "ih_proj_dim": trial.suggest_categorical("ih_proj_dim", [0, 128, 256]),
-        # sider (27 tasks) / tox21 (12 tasks) are the weak spots; give the shared
-        # codebook more prototypes and drop 3 (too few to help multi-task heads).
-        "ih_num_prototypes": trial.suggest_categorical("ih_num_prototypes", [4, 6, 8, 12, 16]),
-        "ih_assignment_mode": trial.suggest_categorical("ih_assignment_mode", ["hard", "soft", "sparse"]),
-        # Tuned optima land at 4e-4..3e-3; the top 1.5 decades went unused.
-        "ih_diversity_weight": trial.suggest_float("ih_diversity_weight", 1e-4, 1e-2, log=True),
-        # bace/tox21 both hit the 0.5 ceiling; 0.1 never won -> shift the grid up.
-        "info_nce_temperature": trial.suggest_categorical("info_nce_temperature", [0.2, 0.5, 1.0]),
+        "tf_dropout": suggest_param(trial, "tf_dropout", space),
+        "ih_rank": suggest_param(trial, "ih_rank", space),
+        "ih_symmetric": suggest_param(trial, "ih_symmetric", space),
+        "ih_proj_dim": suggest_param(trial, "ih_proj_dim", space),
+        "ih_num_prototypes": suggest_param(trial, "ih_num_prototypes", space),
+        "ih_assignment_mode": suggest_param(trial, "ih_assignment_mode", space),
+        "ih_diversity_weight": suggest_param(trial, "ih_diversity_weight", space),
+        "info_nce_temperature": suggest_param(trial, "info_nce_temperature", space),
     }
 
 
-def sample_hparams(trial: optuna.Trial, args: argparse.Namespace) -> dict[str, Any]:
-    # Fast early-overfit at lr=1e-3 -> keep room to go lower, but a 1e-5 floor can't
-    # converge in ~60 transformer epochs and just wastes trials; cap below the
-    # baseline's noisy 3e-3 ceiling.
-    transformer_lr = trial.suggest_float("transformer_lr", 1e-4, 2e-3, log=True)
+def sample_hparams(
+    trial: optuna.Trial, space: dict[str, dict[str, Any]], args: argparse.Namespace
+) -> dict[str, Any]:
+    transformer_lr = suggest_param(trial, "transformer_lr", space)
     return {
-        # 64 never won across the tuned datasets; add 256 to probe more stable/large-batch steps.
-        "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256]),
+        "batch_size": suggest_param(trial, "batch_size", space),
         "lr": transformer_lr,
-        # Tuned optima are all 1e-5..2e-4; the upper decades went unused, so pull the ceiling down.
-        "weight_decay": trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True),
+        "weight_decay": suggest_param(trial, "weight_decay", space),
         "num_epochs": max(args.gcn_pretrain_epochs, args.transformer_epochs),
         "patience": args.patience,
         "gcn_pretrain_epochs": args.gcn_pretrain_epochs,
         "transformer_epochs": args.transformer_epochs,
-        "pretrain_lr": trial.suggest_float("pretrain_lr", 1e-4, 2e-3, log=True),
+        "pretrain_lr": suggest_param(trial, "pretrain_lr", space),
         "transformer_lr": transformer_lr,
-        "ema_decay": trial.suggest_float("ema_decay", 0.95, 0.999),
-        "ema_decay_init": trial.suggest_categorical("ema_decay_init", [0.90, 0.95, 0.98, 0.99]),
-        # Tuned optima are all <=0.05 (tox21 near the floor); trim the unused upper end.
-        "distill_weight": trial.suggest_float("distill_weight", 5e-4, 0.1, log=True),
-        "cross_distill_weight": trial.suggest_categorical("cross_distill_weight", [0.02, 0.05, 0.1]),
+        "ema_decay": suggest_param(trial, "ema_decay", space),
+        "ema_decay_init": suggest_param(trial, "ema_decay_init", space),
+        "distill_weight": suggest_param(trial, "distill_weight", space),
+        "cross_distill_weight": suggest_param(trial, "cross_distill_weight", space),
     }
 
 
@@ -358,6 +445,14 @@ def run_tuning(args: argparse.Namespace) -> None:
         pruner=pruner,
     )
 
+    # Auto-select the search space from the chosen dataset (falls back to BASE).
+    search_space = resolve_search_space(spec.name)
+    specialized = spec.name in DATASET_SEARCH_SPACES and DATASET_SEARCH_SPACES[spec.name]
+    print(
+        f"Search space for '{spec.name}': "
+        f"{'dataset-specific overrides applied' if specialized else 'base space (no overrides)'}"
+    )
+
     base_config: dict[str, object] = {
         "study_name": args.study_name,
         "storage": storage_url,
@@ -368,12 +463,13 @@ def run_tuning(args: argparse.Namespace) -> None:
         "target_columns": target_columns,
         "seed": args.seed,
         "device": args.device,
+        "search_space": search_space,
     }
     save_json(study_dir / "study_config.json", base_config)
 
     def objective(trial: optuna.Trial) -> float:
-        model_kwargs = sample_model_kwargs(trial)
-        hparams = sample_hparams(trial, args)
+        model_kwargs = sample_model_kwargs(trial, search_space)
+        hparams = sample_hparams(trial, search_space, args)
         trial.set_user_attr("model_kwargs", model_kwargs)
         trial.set_user_attr("hparams", hparams)
 
