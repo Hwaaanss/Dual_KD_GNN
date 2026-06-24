@@ -1,38 +1,38 @@
 {
-  "generated_at": "2026-06-22T10:01:38",
+  "generated_at": "2026-06-24T02:45:12",
   "study_name": "tox21_xkd",
   "trial_number": 28,
   "model_kwargs": {
     "gnn_hidden": 256,
-    "gnn_layers": 3,
-    "gnn_dropout": 0.4512759673876398,
+    "gnn_layers": 4,
+    "gnn_dropout": 0.5236451557236359,
     "nhead": 8,
-    "tf_layers": 1,
-    "dim_ff": 768,
-    "tf_dropout": 0.2613638737851236,
-    "ih_rank": 16,
+    "tf_layers": 2,
+    "dim_ff": 512,
+    "tf_dropout": 0.2175736836055281,
+    "ih_rank": 32,
     "ih_symmetric": false,
     "ih_proj_dim": 256,
     "ih_num_prototypes": 8,
     "ih_assignment_mode": "soft",
-    "ih_diversity_weight": 0.00030131167198843296,
-    "info_nce_temperature": 0.5
+    "ih_diversity_weight": 0.0026608341055551505,
+    "info_nce_temperature": 1.0
   },
   "hparams": {
     "batch_size": 64,
-    "lr": 0.00030911829876801835,
-    "weight_decay": 0.00010281573989480964,
+    "lr": 0.00035354802380722716,
+    "weight_decay": 0.00022664327506975406,
     "num_epochs": 150,
     "patience": 10,
     "gcn_pretrain_epochs": 150,
     "transformer_epochs": 150,
-    "pretrain_lr": 0.0013624628855332928,
-    "transformer_lr": 0.00030911829876801835,
-    "ema_decay": 0.9556251687220623,
-    "ema_decay_init": 0.99,
-    "distill_weight": 0.0006551435364681056,
-    "cross_distill_weight": 0.05
+    "pretrain_lr": 0.002041157104304214,
+    "transformer_lr": 0.00035354802380722716,
+    "ema_decay": 0.9925344481205256,
+    "ema_decay_init": 0.95,
+    "distill_weight": 0.030086817366170995,
+    "cross_distill_weight": 0.02
   },
   "device": "cuda",
-  "status": "pruned"
+  "status": "complete"
 }

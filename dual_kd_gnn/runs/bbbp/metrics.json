@@ -6,10 +6,10 @@
     "p_np"
   ],
   "num_targets": 1,
-  "best_val_auc": 0.9512195121951219,
+  "best_val_auc": 0.9677275431290897,
   "best_epoch": 15,
-  "test_roc_auc": 0.9748661511005353,
+  "test_roc_auc": 0.9672813801308745,
   "num_parameters": 2233609,
   "uses_dual_features": true,
-  "elapsed_seconds": 282.77
+  "elapsed_seconds": 278.9
 }

@@ -1,38 +1,38 @@
 {
-  "generated_at": "2026-06-21T18:07:02",
+  "generated_at": "2026-06-23T14:09:18",
   "study_name": "bace_xkd",
   "trial_number": 46,
   "model_kwargs": {
-    "gnn_hidden": 192,
-    "gnn_layers": 3,
-    "gnn_dropout": 0.3603231473708897,
-    "nhead": 4,
-    "tf_layers": 1,
-    "dim_ff": 384,
-    "tf_dropout": 0.3673960826851745,
+    "gnn_hidden": 512,
+    "gnn_layers": 4,
+    "gnn_dropout": 0.2753489000341671,
+    "nhead": 8,
+    "tf_layers": 4,
+    "dim_ff": 1024,
+    "tf_dropout": 0.2712266205106009,
     "ih_rank": 64,
     "ih_symmetric": false,
     "ih_proj_dim": 128,
     "ih_num_prototypes": 4,
     "ih_assignment_mode": "soft",
-    "ih_diversity_weight": 0.0008329611070349757,
-    "info_nce_temperature": 0.5
+    "ih_diversity_weight": 0.030759431959386904,
+    "info_nce_temperature": 1.0
   },
   "hparams": {
     "batch_size": 128,
-    "lr": 0.0018784060354729763,
-    "weight_decay": 4.425176619853939e-05,
+    "lr": 0.0005617296555183315,
+    "weight_decay": 2.513270140150304e-06,
     "num_epochs": 150,
     "patience": 10,
     "gcn_pretrain_epochs": 150,
     "transformer_epochs": 150,
-    "pretrain_lr": 0.0006850359423722215,
-    "transformer_lr": 0.0018784060354729763,
-    "ema_decay": 0.9865226939367351,
-    "ema_decay_init": 0.99,
-    "distill_weight": 0.040033102493025836,
-    "cross_distill_weight": 0.02
+    "pretrain_lr": 0.00013564556444032376,
+    "transformer_lr": 0.0005617296555183315,
+    "ema_decay": 0.9638740770496954,
+    "ema_decay_init": 0.9,
+    "distill_weight": 0.021628745051274018,
+    "cross_distill_weight": 0.05
   },
   "device": "cuda",
-  "status": "pruned"
+  "status": "complete"
 }
